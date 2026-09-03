@@ -1,0 +1,15 @@
+.env
+.DS_Store
+
+__pycache__/
+
+
+# Datasets
+*.csv
+
+# Logs
+*.log
+
+# ML models
+*.safetensors
+*.pkl
