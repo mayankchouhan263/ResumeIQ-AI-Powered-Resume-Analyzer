@@ -16,6 +16,7 @@ SKILL_ALIASES: Dict[str, str] = {
     'springboot':    'spring boot',
     'golang':        'go',
     'ml':            'machine learning',
+    'dl' :            'deep learning',
     'ai':            'artificial intelligence',
     'nlp':           'natural language processing',
     'cv':            'computer vision',
