@@ -184,7 +184,7 @@ def parse_job_description(raw_text: str) -> Dict:
         f"Groq returned unparseable response after retry. Raw response:\n{raw_response[:500]}"
     )
 
-#it will make sure, that the parse json has all the valid fields we expect
+# it will make sure, that the parse json has all the valid fields we expect
 def _validate_jd_result(result: dict) -> dict:
     
     defaults = {
