@@ -38,7 +38,7 @@ def validate_file(file_data:bytes, filename:str)->Tuple[bool, str, Optional[str]
         ), None
     
     if file_size_bytes==0:
-        return False, 'uploade file is empty...please check the file you have uploaded and try again'
+        return False, 'uploade file is empty...please check the file you have uploaded and try again', None
     
     try:
         mime_type=magic.from_buffer(file_data, mime=True)

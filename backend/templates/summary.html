@@ -225,11 +225,11 @@
     <h2>Score Breakdown</h2>
 
     {% set rows = [
-        ('Formatting',          component_scores.formatting,        20, component_pct.formatting,        'Structure, section headers, bullet points'),
-        ('Keywords & Skills',   component_scores.keywords,          25, component_pct.keywords,          'Keyword density and relevance'),
-        ('Content Quality',     component_scores.content,           25, component_pct.content,           'Action verbs, metrics, achievements'),
-        ('Skill Validation',    component_scores.skill_validation,  15, component_pct.skill_validation,  'Skills backed by project evidence'),
-        ('ATS Compatibility',   component_scores.ats_compatibility, 15, component_pct.ats_compatibility, 'Clean formatting, no parsing blockers'),
+        ('Formatting',          component_scores.get('formatting', 0),        20, component_pct.get('formatting', 0),        'Structure, section headers, bullet points'),
+        ('Keywords & Skills',   component_scores.get('keywords', 0),          25, component_pct.get('keywords', 0),          'Keyword density and relevance'),
+        ('Content Quality',     component_scores.get('content', 0),           25, component_pct.get('content', 0),           'Action verbs, metrics, achievements'),
+        ('Skill Validation',    component_scores.get('skill_validation', 0),  15, component_pct.get('skill_validation', 0),  'Skills backed by project evidence'),
+        ('ATS Compatibility',   component_scores.get('ats_compatibility', 0), 15, component_pct.get('ats_compatibility', 0), 'Clean formatting, no parsing blockers'),
     ] %}
 
     {% for label, score, max_score, pct, sublabel in rows %}

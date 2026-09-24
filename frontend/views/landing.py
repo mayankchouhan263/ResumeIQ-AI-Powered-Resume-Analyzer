@@ -65,13 +65,13 @@ def render():
         **No more empty claims!**
         """)
     
-    with col3:
-        st.markdown("""
-        ### 🔒 Privacy First
-        All analysis runs locally with no external API calls. Your resume data never leaves your system.
+    # with col3:
+    #     st.markdown("""
+    #     ### 🔒 Privacy First
+    #     All analysis runs locally with no external API calls. Your resume data never leaves your system.
         
-        **100% Private & Secure**
-        """)
+    #     **100% Private & Secure**
+    #     """)
     
     st.markdown("---")
     
@@ -89,7 +89,7 @@ def render():
     with col2:
         st.markdown("""
         #### 2️⃣ AI Analysis
-        Our local AI models analyze your resume across multiple dimensions
+         AI models analyze your resume across multiple dimensions
         """)
     
     with col3:
