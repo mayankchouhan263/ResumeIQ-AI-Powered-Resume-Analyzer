@@ -42,6 +42,7 @@ SENTENCE_TRANSFORMER_MODEL = os.getenv("SENTENCE_TRANSFORMER_MODEL", "all-MiniLM
 SCORE_WEIGHTS = {
     "formatting": 20, "keywords": 25, "content": 25,
     "skill_validation": 15, "ats_compatibility": 15,
+    
 }
 
 JD_KEYWORD_WEIGHT=0.6
