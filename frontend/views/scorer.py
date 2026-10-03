@@ -40,7 +40,7 @@ def _show_backend_error(exc: Exception) -> None:
             detail = exc.response.json().get("detail", exc.response.text)
         except ValueError:
             detail = exc.response.text
-        st.error(f"Backend returned {exc.response.status_code}: {detail}")
+        st.error(detail)
     else:
         st.error(f"Unexpected error: {exc}")
 
