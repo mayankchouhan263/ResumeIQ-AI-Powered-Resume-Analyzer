@@ -6,29 +6,31 @@ def render():
     # =========================================================
     # HERO
     # =========================================================
-    st.markdown("""
+
+    st.html("""
     <div class="resumeiq-hero">
 
         <div class="resumeiq-badge">
             ✦ AI-POWERED RESUME ANALYZER
         </div>
 
-        <h1>
+        <div class="resumeiq-hero-title">
             Make your resume
             <span>stand out.</span>
-        </h1>
+        </div>
 
-        <p>
+        <div class="resumeiq-hero-description">
             Analyze your resume with AI, understand your ATS compatibility,
             identify missing skills, and get actionable recommendations.
-        </p>
+        </div>
 
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
     # =========================================================
-    # MAIN CTA
+    # CTA
     # =========================================================
+
     col1, col2, col3 = st.columns([1, 2, 1])
 
     with col2:
@@ -43,239 +45,274 @@ def render():
     st.markdown("<br>", unsafe_allow_html=True)
 
     # =========================================================
-    # FEATURES
+    # FEATURES HEADER
     # =========================================================
-    st.markdown("""
-    <div style="text-align:center; margin-bottom:25px;">
+
+    st.html("""
+    <div style="
+        text-align:center;
+        margin-bottom:25px;
+    ">
+
         <div class="resumeiq-badge">
             ✦ WHAT RESUMEIQ DOES
         </div>
 
-        <h2 style="
+        <div style="
             color:#FFFFFF;
             font-family:'Playfair Display', Georgia, serif;
+            font-size:2rem;
+            font-weight:700;
             margin-bottom:8px;
         ">
             Everything you need to improve your resume
-        </h2>
+        </div>
 
-        <p style="
+        <div style="
             color:#7C8A9E;
             max-width:600px;
             margin:0 auto;
+            font-size:0.95rem;
         ">
-            Get a deeper understanding of how your resume performs
-            against ATS systems and job requirements.
-        </p>
+            Analyze ATS compatibility, identify skill gaps,
+            and get actionable recommendations.
+        </div>
+
     </div>
-    """, unsafe_allow_html=True)
+    """)
+
+    # =========================================================
+    # FEATURE CARDS
+    # =========================================================
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.markdown("""
+        st.html("""
         <div class="resumeiq-feature">
 
             <div class="resumeiq-feature-icon">
                 📊
             </div>
 
-            <h3>
+            <div style="
+                color:#FFFFFF;
+                font-family:'Playfair Display', Georgia, serif;
+                font-size:1.1rem;
+                font-weight:600;
+                margin-bottom:8px;
+            ">
                 5-Factor ATS Scoring
-            </h3>
+            </div>
 
-            <p>
+            <div style="
+                color:#7C8A9E;
+                font-size:0.88rem;
+                line-height:1.65;
+            ">
                 Get a detailed score across formatting, keywords,
                 content quality, skill validation, and ATS compatibility.
-            </p>
+            </div>
 
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with col2:
-        st.markdown("""
+        st.html("""
         <div class="resumeiq-feature">
 
             <div class="resumeiq-feature-icon">
                 🧠
             </div>
 
-            <h3>
+            <div style="
+                color:#FFFFFF;
+                font-family:'Playfair Display', Georgia, serif;
+                font-size:1.1rem;
+                font-weight:600;
+                margin-bottom:8px;
+            ">
                 AI Skill Validation
-            </h3>
+            </div>
 
-            <p>
-                Check whether the skills listed on your resume
+            <div style="
+                color:#7C8A9E;
+                font-size:0.88rem;
+                line-height:1.65;
+            ">
+                Check whether the skills on your resume
                 are actually supported by your projects and experience.
-            </p>
+            </div>
 
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     with col3:
-        st.markdown("""
+        st.html("""
         <div class="resumeiq-feature">
 
             <div class="resumeiq-feature-icon">
                 🎯
             </div>
 
-            <h3>
+            <div style="
+                color:#FFFFFF;
+                font-family:'Playfair Display', Georgia, serif;
+                font-size:1.1rem;
+                font-weight:600;
+                margin-bottom:8px;
+            ">
                 Job Description Matching
-            </h3>
+            </div>
 
-            <p>
+            <div style="
+                color:#7C8A9E;
+                font-size:0.88rem;
+                line-height:1.65;
+            ">
                 Compare your resume against a job description
                 and identify missing skills and keywords.
-            </p>
+            </div>
 
         </div>
-        """, unsafe_allow_html=True)
+        """)
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
     # =========================================================
     # HOW IT WORKS
     # =========================================================
-    st.markdown("""
-    <div style="text-align:center; margin-bottom:25px;">
+
+    st.html("""
+    <div style="
+        text-align:center;
+        margin-bottom:25px;
+    ">
+
         <div class="resumeiq-badge">
             ✦ SIMPLE WORKFLOW
         </div>
 
-        <h2 style="
+        <div style="
             color:#FFFFFF;
             font-family:'Playfair Display', Georgia, serif;
+            font-size:2rem;
+            font-weight:700;
             margin-bottom:8px;
         ">
             How It Works
-        </h2>
+        </div>
 
-        <p style="
+        <div style="
             color:#7C8A9E;
+            font-size:0.95rem;
         ">
             Analyze your resume in three simple steps.
-        </p>
+        </div>
+
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
     col1, col2, col3 = st.columns(3)
 
-    with col1:
-        st.markdown("""
-        <div class="resumeiq-feature">
+    steps = [
+        (
+            "01",
+            "📄",
+            "Upload",
+            "Upload your resume in PDF or DOCX format."
+        ),
+        (
+            "02",
+            "🤖",
+            "Analyze",
+            "Our AI analyzes your resume."
+        ),
+        (
+            "03",
+            "✨",
+            "Improve",
+            "Get actionable recommendations."
+        )
+    ]
 
-            <div style="
-                color:#FFB700;
-                font-family:'DM Mono', monospace;
-                font-size:0.75rem;
-                font-weight:700;
-                margin-bottom:10px;
-            ">
-                STEP 01
+    for col, (number, icon, title, description) in zip(
+        [col1, col2, col3],
+        steps
+    ):
+        with col:
+
+            st.html(f"""
+            <div class="resumeiq-feature">
+
+                <div style="
+                    color:#FFB700;
+                    font-family:'DM Mono',monospace;
+                    font-size:0.75rem;
+                    font-weight:700;
+                    margin-bottom:10px;
+                ">
+                    STEP {number}
+                </div>
+
+                <div class="resumeiq-feature-icon">
+                    {icon}
+                </div>
+
+                <div style="
+                    color:#FFFFFF;
+                    font-family:'Playfair Display', Georgia, serif;
+                    font-size:1.1rem;
+                    font-weight:600;
+                    margin-bottom:8px;
+                ">
+                    {title}
+                </div>
+
+                <div style="
+                    color:#7C8A9E;
+                    font-size:0.88rem;
+                    line-height:1.65;
+                ">
+                    {description}
+                </div>
+
             </div>
-
-            <div class="resumeiq-feature-icon">
-                📄
-            </div>
-
-            <h3>
-                Upload
-            </h3>
-
-            <p>
-                Upload your resume in PDF or DOCX format.
-            </p>
-
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col2:
-        st.markdown("""
-        <div class="resumeiq-feature">
-
-            <div style="
-                color:#FFB700;
-                font-family:'DM Mono', monospace;
-                font-size:0.75rem;
-                font-weight:700;
-                margin-bottom:10px;
-            ">
-                STEP 02
-            </div>
-
-            <div class="resumeiq-feature-icon">
-                🤖
-            </div>
-
-            <h3>
-                Analyze
-            </h3>
-
-            <p>
-                ResumeIQ analyzes your resume using AI-powered
-                scoring and semantic matching.
-            </p>
-
-        </div>
-        """, unsafe_allow_html=True)
-
-    with col3:
-        st.markdown("""
-        <div class="resumeiq-feature">
-
-            <div style="
-                color:#FFB700;
-                font-family:'DM Mono', monospace;
-                font-size:0.75rem;
-                font-weight:700;
-                margin-bottom:10px;
-            ">
-                STEP 03
-            </div>
-
-            <div class="resumeiq-feature-icon">
-                ✨
-            </div>
-
-            <h3>
-                Improve
-            </h3>
-
-            <p>
-                Get actionable recommendations to strengthen
-                your resume.
-            </p>
-
-        </div>
-        """, unsafe_allow_html=True)
+            """)
 
     st.markdown("<br><br>", unsafe_allow_html=True)
 
     # =========================================================
-    # NO LOGIN MESSAGE
+    # NO LOGIN REQUIRED
     # =========================================================
-    st.markdown("""
+
+    st.html("""
     <div class="resumeiq-save-card">
 
-        <h3>
+        <div style="
+            color:#FFFFFF;
+            font-family:'Playfair Display', Georgia, serif;
+            font-size:1.2rem;
+            font-weight:600;
+            margin-bottom:8px;
+        ">
             🔓 No account required
-        </h3>
+        </div>
 
-        <p>
-            Analyze your resume and view your results without signing in.
-            You only need an account if you choose to save an analysis
-            to your history.
-        </p>
+        <div style="
+            color:#7C8A9E;
+            font-size:0.88rem;
+            line-height:1.6;
+        ">
+            Analyze your resume and view the results without signing in.
+            Sign in only when you choose to save an analysis to your history.
+        </div>
 
     </div>
-    """, unsafe_allow_html=True)
+    """)
 
-    # =========================================================
-    # FOOTER
-    # =========================================================
-    st.markdown("""
+    st.html("""
     <div class="resumeiq-footer">
         ResumeIQ · AI-Powered Resume Intelligence
     </div>
-    """, unsafe_allow_html=True)
+    """)

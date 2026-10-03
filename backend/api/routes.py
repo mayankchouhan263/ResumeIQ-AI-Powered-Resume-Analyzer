@@ -60,6 +60,16 @@ async def analyze_resume(
             detail=f'Could not read or parse the resume: {exc}',
         )
 
+    # Is this even a resume? Cheap offline check, so we don't spend LLM tokens on invoices,
+    # papers, job descriptions, cover letters...
+    from backend.services.resume_validator import assess_resume
+    verdict = assess_resume(resume_text)
+    if not verdict.is_resume:
+        logger.info(f"Rejected '{filename}' as non-resume: kind={verdict.kind} score={verdict.score} {verdict.signals}")
+        raise HTTPException(status_code=422, detail=verdict.message)
+
+    from backend.services.groq_parser import LLMServiceError
+
     #Full Analysis Pipeline 
     try:
         from backend.services.resume_analyzer import analyze_full_resume
@@ -70,6 +80,12 @@ async def analyze_resume(
             embedder=embedder,
             job_description=job_description
         )
+    except LLMServiceError as exc:
+        logger.warning(f'LLM service error ({exc.status_code}): {exc}')
+        headers = {'Retry-After': str(int(exc.retry_after) + 1)} if exc.retry_after else None
+        raise HTTPException(
+            status_code=exc.status_code if exc.status_code in (413, 429) else 503,
+            detail=str(exc), headers=headers)
     except Exception as exc:
         logger.error(f'Full analysis pipeline failed: {exc}')
         raise HTTPException(status_code=500, detail=f'Analysis pipeline failed: {exc}')

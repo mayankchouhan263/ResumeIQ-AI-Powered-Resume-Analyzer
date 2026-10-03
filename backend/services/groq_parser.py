@@ -5,6 +5,7 @@ import logging
 import os
 import re
 import threading
+import time
 from collections import OrderedDict
 from pathlib import Path
 from typing import Dict, List
@@ -24,13 +25,66 @@ _client=None
 # An LLM call is never perfectly repeatable (even at temperature 0), and every score
 # in this app is computed from what the LLM extracts. So the same resume text must
 # always map to the same extraction: we cache it, keyed by a hash of the text.
-PARSER_VERSION = 'v2'        # bump when you change the prompts, to invalidate old cache entries
+PARSER_VERSION = 'v3'        # bump when you change the prompts, to invalidate old cache entries
 _CACHE_MAX     = 256
 _mem_cache = OrderedDict()
 _cache_lock    = threading.Lock()
 # Optional on-disk cache (survives restarts). Off by default: it would store parsed
 # resumes (names, emails, phones) on disk. Set RESUME_PARSE_CACHE_DIR to enable.
 _DISK_DIR = os.getenv('RESUME_PARSE_CACHE_DIR')
+
+
+# -- Token budget -------------------------------------------------------------
+# Groq's free tier allows ~8000 tokens/minute PER REQUEST ESTIMATE = prompt tokens + max_tokens.
+# (The old code asked for max_tokens=4096, so any input over ~4000 tokens was rejected with a 413.)
+# ~3 characters per token is a safe estimate for resumes (lots of symbols and short words).
+GROQ_MAX_INPUT_CHARS   = int(os.getenv('GROQ_MAX_INPUT_CHARS', '9000'))      # resume text sent to the LLM
+GROQ_JD_MAX_INPUT_CHARS = int(os.getenv('GROQ_JD_MAX_INPUT_CHARS', '5000'))  # job description text
+GROQ_MAX_OUTPUT_TOKENS = int(os.getenv('GROQ_MAX_OUTPUT_TOKENS', '3000'))
+GROQ_JD_MAX_OUTPUT_TOKENS = int(os.getenv('GROQ_JD_MAX_OUTPUT_TOKENS', '1500'))
+
+
+class LLMServiceError(Exception):
+    """The LLM provider refused or could not serve the request (rate limit, request too large...).
+    `str(exc)` is written for end users; the API turns it into a proper HTTP status."""
+
+    def __init__(self, message: str, status_code: int = 503, retry_after=None):
+        super().__init__(message)
+        self.status_code = status_code
+        self.retry_after = retry_after
+
+
+def _status_of(exc: Exception):
+    code = getattr(exc, 'status_code', None)
+    if code is None:
+        code = getattr(getattr(exc, 'response', None), 'status_code', None)
+    return code
+
+
+def _retry_after_of(exc: Exception):
+    """Seconds to wait, from the Retry-After header or Groq's 'try again in 2.5s' message."""
+    headers = getattr(getattr(exc, 'response', None), 'headers', None)
+    try:
+        if headers is not None and headers.get('retry-after'):
+            return float(headers.get('retry-after'))
+    except Exception:
+        pass
+    m = re.search(r'try again in\s+([\d.]+)\s*(ms|s|m)\b', str(exc), re.IGNORECASE)
+    if m:
+        val, unit = float(m.group(1)), m.group(2).lower()
+        return val / 1000 if unit == 'ms' else val * 60 if unit == 'm' else val
+    return None
+
+
+def _condense(text: str, limit: int, tail: int = 1500) -> str:
+    """Normalise whitespace; if still too long keep the start and the end (links/achievements)."""
+    t = re.sub(r'[ \t]+', ' ', text or '')
+    t = re.sub(r'\n\s*\n+', '\n', t).strip()
+    if len(t) <= limit:
+        return t
+    tail = min(tail, limit // 3)
+    logger.warning(f'Input truncated for the LLM: {len(t)} -> {limit} chars')
+    return t[:limit - tail - 40].rstrip() + '\n[... middle of document omitted for length ...]\n' + t[-tail:].lstrip()
 
 
 def _cache_key(kind: str, text: str) -> str:
@@ -144,8 +198,7 @@ Important instructions:
 Resume Text:
 {raw_text}"""
 
-def _call_groq(client:Groq, system_prompt:str, user_prompt:str)->str:
-
+def _call_groq(client: Groq, system_prompt: str, user_prompt: str, max_tokens: int = None) -> str:
     kwargs = dict(
         model=GROQ_MODEL,
         messages=[
@@ -153,19 +206,67 @@ def _call_groq(client:Groq, system_prompt:str, user_prompt:str)->str:
             {'role': 'user', 'content': user_prompt}
         ],
         temperature=0.0,
-        seed=42,                 # best-effort repeatability on Groq
-        max_tokens=4096,
+        seed=42,                                   # best-effort repeatability on Groq
+        max_tokens=max_tokens or GROQ_MAX_OUTPUT_TOKENS,
     )
-    try:
-        response = client.chat.completions.create(
-            response_format={'type': 'json_object'}, **kwargs
-        )
-    except Exception as exc:
-        # Some models reject response_format; fall back to the plain call.
-        logger.warning(f'Groq call with json_object failed ({exc}); retrying without it')
-        response = client.chat.completions.create(**kwargs)
+    if 'gpt-oss' in GROQ_MODEL.lower():
+        # reasoning model: reasoning tokens count against max_tokens, so keep them small
+        kwargs['extra_body'] = {'reasoning_effort': 'low'}
 
-    return response.choices[0].message.content.strip()
+    use_json_mode = True
+    rate_limit_retries = 0
+    while True:
+        call_kwargs = dict(kwargs)
+        if use_json_mode:
+            call_kwargs['response_format'] = {'type': 'json_object'}
+        try:
+            response = client.chat.completions.create(**call_kwargs)
+            return (response.choices[0].message.content or '').strip()
+        except Exception as exc:
+            status = _status_of(exc)
+            if status == 413:
+                raise LLMServiceError('The request was too large for the AI service.', 413) from exc
+            if status == 429:
+                wait = _retry_after_of(exc)
+                rate_limit_retries += 1
+                if rate_limit_retries <= 2 and (wait is None or wait <= 20):
+                    delay = (wait if wait is not None else 5 * rate_limit_retries) + 0.5
+                    logger.warning(f'Groq rate limit hit; waiting {delay:.1f}s (retry {rate_limit_retries}/2)')
+                    time.sleep(delay)
+                    continue
+                secs = int(wait) + 1 if wait else 30
+                raise LLMServiceError(
+                    f'The AI service is busy (rate limit reached). Please try again in about {secs} seconds.',
+                    429, wait) from exc
+            if status == 400:
+                # only degrade on a real "bad request" - never re-send a request that was rate limited
+                if use_json_mode:
+                    logger.warning(f'Groq rejected json_object mode ({exc}); retrying without it')
+                    use_json_mode = False
+                    continue
+                if 'extra_body' in kwargs:
+                    logger.warning(f'Groq rejected extra_body ({exc}); retrying without it')
+                    kwargs.pop('extra_body')
+                    continue
+            raise
+
+
+def _call_with_shrink(client, system_prompt, user_template, raw_text, limit, max_tokens):
+    """Send the (condensed) text; if the provider says the request is too large, retry once with less."""
+    for attempt in range(2):
+        prompt = user_template.format(raw_text=_condense(raw_text, limit))
+        try:
+            return prompt, _call_groq(client, system_prompt, prompt, max_tokens)
+        except LLMServiceError as exc:
+            if exc.status_code == 413 and attempt == 0:
+                limit = int(limit * 0.6)
+                logger.warning(f'Groq said the request is too large; retrying with {limit} chars')
+                continue
+            if exc.status_code == 413:
+                raise LLMServiceError(
+                    'This document is too long for the AI service\'s current limit, even after shortening it. '
+                    'Try a shorter resume (1-2 pages).', 413) from exc
+            raise
 
 def _try_parse_json(text: str) -> dict | None:
 
@@ -200,8 +301,9 @@ def parse_resume(raw_text: str)->Dict:
 def _parse_resume_uncached(raw_text: str)->Dict:
 
     client=_get_client()
-    prompt=RESUME_USER_PROMPT.format(raw_text=raw_text)
-    raw_response=_call_groq(client, RESUME_SYSTEM_PROMPT, prompt)
+    prompt, raw_response = _call_with_shrink(
+        client, RESUME_SYSTEM_PROMPT, RESUME_USER_PROMPT, raw_text,
+        GROQ_MAX_INPUT_CHARS, GROQ_MAX_OUTPUT_TOKENS)
     result=_try_parse_json(raw_response)
 
     if result is not None:
@@ -262,9 +364,9 @@ def parse_job_description(raw_text: str) -> Dict:
 
 def _parse_jd_uncached(raw_text: str) -> Dict:
     client = _get_client()
-    prompt = JD_USER_PROMPT.format(raw_text=raw_text)
-
-    raw_response = _call_groq(client, JD_SYSTEM_PROMPT, prompt)
+    prompt, raw_response = _call_with_shrink(
+        client, JD_SYSTEM_PROMPT, JD_USER_PROMPT, raw_text,
+        GROQ_JD_MAX_INPUT_CHARS, GROQ_JD_MAX_OUTPUT_TOKENS)
     result = _try_parse_json(raw_response)
     if result is not None:
         return _validate_jd_result(result)
@@ -275,7 +377,7 @@ def _parse_jd_uncached(raw_text: str) -> Dict:
         "Return ONLY the raw JSON object, no markdown, no explanation, no code fences.\n\n"
         + prompt
     )
-    raw_response = _call_groq(client, JD_SYSTEM_PROMPT, strict_prompt)
+    raw_response = _call_groq(client, JD_SYSTEM_PROMPT, strict_prompt, GROQ_JD_MAX_OUTPUT_TOKENS)
     result = _try_parse_json(raw_response)
     if result is not None:
         return _validate_jd_result(result)

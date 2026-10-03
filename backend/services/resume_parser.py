@@ -77,6 +77,11 @@ def _extract_pdf_hyperlinks(file_data: bytes) -> str:
                         uri = uri.strip()
                         if uri.startswith('http'):
                             urls.append(uri)
+                        elif uri.lower().startswith('mailto:'):
+                            # plain address on its own line so the email regex / LLM can see it
+                            addr = uri[7:].split('?')[0].strip()
+                            if addr:
+                                urls.append(addr)
                 except Exception:
                     pass
     except Exception:
@@ -88,7 +93,7 @@ def _extract_pdf_with_pdfplumber(file_data: bytes) -> str:
     text = ''
     with pdfplumber.open(io.BytesIO(file_data)) as pdf:
         for page in pdf.pages:
-            page_text = page.extract_text()
+            page_text = page.extract_text(x_tolerance=1.5)
             if page_text:
                 text += page_text + '\n'
 

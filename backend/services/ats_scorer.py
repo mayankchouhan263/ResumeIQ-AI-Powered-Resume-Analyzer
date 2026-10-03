@@ -154,6 +154,28 @@ _GENERIC_URL_TOKENS = {
 }
 
 
+_DSA_EVIDENCE_RE = re.compile(
+    r'\b(?:leetcode|codeforces|codechef|hackerrank|hackerearth|geeksforgeeks|gfg|atcoder|'
+    r'interviewbit|coding\s*ninjas|code\s*studio|spoj|topcoder)\b'
+    r'|\d[\d,]*\s*\+?\s*(?:(?:dsa|coding|algorithm\w*|programming)\s+(?:problems?|questions?)'
+    r'|(?:problems?|questions?)\s+(?:were\s+)?(?:solved|completed)\b)'
+    r'|\b(?:solved|completed)\s+(?:over\s+|more\s+than\s+)?\d[\d,]*\s*\+?\s*'
+    r'(?:dsa\s+|coding\s+|algorithm\w*\s+)?(?:problems?|questions?)',
+    re.IGNORECASE,
+)
+_DSA_URL_HOSTS = ('leetcode.com', 'codeforces.com', 'codechef.com', 'hackerrank.com',
+                  'geeksforgeeks.org', 'hackerearth.com', 'atcoder.jp', 'codingninjas.com')
+
+
+def _is_dsa_skill(skill: str) -> bool:
+    s = re.sub(r'\([^)]*\)', ' ', skill).lower()
+    s = re.sub(r'\s+', ' ', s).strip()
+    if re.search(r'\bdsa\b|data structures?', s):
+        return True
+    return s in {'algorithms', 'algorithm', 'algorithm design', 'competitive programming',
+                 'algorithms and problem solving', 'algorithmic problem solving'}
+
+
 def _term_regex(term: str):
     """Whole-word regex for a skill. 1-2 letter terms (R, C, Go, JS) are case-sensitive."""
     t = term.strip()
@@ -224,6 +246,45 @@ def _link_evidence(variants: List[str], urls: List[str]) -> Optional[str]:
     return None
 
 
+_SECTION_STOP = (r'education|academic|projects?|personal projects?|skills?|technical skills?|'
+                 r'certifications?|licen[cs]es?|courses?|training|achievements?|accomplishments?|awards?|honou?rs|'
+                 r'achievements?\s*(?:and|&)\s*[a-z ]+|awards?\s*(?:and|&)\s*[a-z ]+|'
+                 r'coding profiles?|competitive programming|positions? of responsibility|'
+                 r'publications?|summary|profile|objective|interests?|hobbies|languages?|'
+                 r'references?|extracurricular[a-z ]*|(?:work |professional )?experience|internships?|'
+                 r'employment(?: history)?')
+
+
+def _extract_section(resume_text: str, heading_pattern: str) -> str:
+    """Raw text of one resume section (heading line up to the next known heading)."""
+    if not resume_text:
+        return ''
+    head = re.compile(rf'^\s*(?:{heading_pattern})\s*:?\s*$', re.IGNORECASE)
+    stop = re.compile(rf'^\s*(?:{_SECTION_STOP})\s*:?\s*$', re.IGNORECASE)
+    lines, collecting, out = resume_text.splitlines(), False, []
+    for line in lines:
+        if not collecting:
+            if head.match(line):
+                collecting = True
+            continue
+        if stop.match(line) and not head.match(line):
+            break
+        if re.match(r'^\s*(?:https?://|mailto:|www\.)\S+\s*$', line, re.IGNORECASE):
+            break                      # hyperlink list appended after the resume text
+        out.append(line)
+    return '\n'.join(out).strip()
+
+
+def _flatten(value) -> str:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (list, tuple)):
+        return ', '.join(_flatten(v) for v in value)
+    if isinstance(value, dict):
+        return ' '.join(_flatten(v) for v in value.values())
+    return '' if value is None else str(value)
+
+
 def _project_text(p: Dict) -> str:
     tech = p.get('technologies') or []
     tech_txt = ', '.join(str(t) for t in tech) if isinstance(tech, list) else str(tech)
@@ -237,6 +298,7 @@ def validate_skills_with_projects(
     embedder: Optional[SentenceTransformer] = None,
     threshold: float = 0.5,
     resume_text: str = '',
+    certifications: Optional[List] = None,
 ) -> Dict:
 
     def _result(validated, unvalidated, soft):
@@ -267,12 +329,49 @@ def validate_skills_with_projects(
     for p in projects or []:
         if isinstance(p, dict):
             sources.append((p.get('title') or 'Untitled Project', _project_text(p)))
-    experience_text = ' '.join(
-        f"{e.get('job_title', '')} {e.get('company', '')} {e.get('description', '')}"
-        for e in (experience_entries or []) if isinstance(e, dict)
-    ).strip()
-    if experience_text:
-        sources.append(('Experience Section', experience_text))
+
+    # Experience: one source per job so the UI can say which role proves the skill.
+    parsed_jobs = 0
+    for e in experience_entries or []:
+        if isinstance(e, dict):
+            text = _flatten({k: v for k, v in e.items()
+                             if k not in ('start_date', 'end_date', 'duration_months')}).strip()
+            if text:
+                title = (e.get('job_title') or '').strip()
+                comp  = (e.get('company') or '').strip()
+                name  = ' @ '.join(x for x in (title, comp) if x) or 'Role'
+                sources.append((f'Experience: {name[:60]}', text))
+                parsed_jobs += 1
+    # The LLM sometimes misses internships/jobs; fall back to the raw section text.
+    if parsed_jobs == 0:
+        raw_exp = _extract_section(
+            resume_text, r'(?:work |professional )?experience|internships?|employment(?: history)?|work history')
+        if raw_exp:
+            sources.append(('Experience Section', raw_exp))
+
+    # Achievements / awards / coding profiles: the LLM parser does not extract these, so read the
+    # raw section. "Solved 500+ DSA problems on LeetCode" is the evidence for DSA skills.
+    raw_ach = _extract_section(
+        resume_text,
+        r'achievements?|accomplishments?|awards?|honou?rs|achievements?\s*(?:and|&)\s*(?:awards?|activities|honou?rs|certifications?)|'
+        r'awards?\s*(?:and|&)\s*(?:achievements?|honou?rs|recognition)|coding profiles?|'
+        r'coding achievements?|competitive programming|positions? of responsibility|extracurricular[a-z ]*')
+    if raw_ach:
+        sources.append(('Achievements Section', raw_ach))
+
+    # Certifications: each one is evidence on its own ("AWS Certified Cloud Practitioner" -> AWS).
+    parsed_certs = 0
+    for c in certifications or []:
+        text = _flatten(c).strip()
+        if text:
+            sources.append((f'Certification: {text[:60]}', text))
+            parsed_certs += 1
+    if parsed_certs == 0:
+        raw_cert = _extract_section(
+            resume_text, r'certifications?|licen[cs]es?(?: (?:and|&) certifications?)?|'
+                         r'certifications? (?:and|&) (?:courses|training)|courses|training')
+        if raw_cert:
+            sources.append(('Certifications Section', raw_cert))
 
     urls = _URL_RE.findall(resume_text or '')
 
@@ -284,9 +383,16 @@ def validate_skills_with_projects(
         regexes  = [_term_regex(v) for v in variants]
         labels: List[str] = []
 
+        is_dsa = _is_dsa_skill(skill)
         for label, text in sources:
-            if label not in labels and any(r.search(text) for r in regexes):
+            if label in labels:
+                continue
+            if any(r.search(text) for r in regexes) or (is_dsa and _DSA_EVIDENCE_RE.search(text)):
                 labels.append(label)
+
+        if is_dsa and any(h in u.lower() for u in urls for h in _DSA_URL_HOSTS):
+            if 'Coding profile link' not in labels:
+                labels.append('Coding profile link')
 
         if _is_vcs_skill(skill):
             ev = _vcs_evidence(urls, resume_text)
@@ -308,7 +414,7 @@ def validate_skills_with_projects(
         for label, text in sources:
             for part in re.split(r'(?<=[.!?])\s+|\n|;|•', text):
                 part = part.strip()
-                if len(part) >= 15:
+                if len(part) >= 15 or (label.startswith('Certification') and len(part) >= 6):
                     chunks.append((label, part))
         candidates = [s for s in pending if len(s) > 2]
         if chunks and candidates:

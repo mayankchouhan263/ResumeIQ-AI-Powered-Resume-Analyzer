@@ -10,7 +10,7 @@ logger = logging.getLogger('ats_resume_scorer')
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(Path(__file__).resolve().parents[2] / '.env')
+    load_dotenv(Path(__file__).resolve().parents[2] / 'backend' / '.env')
 except ImportError:
     pass
 

@@ -45,6 +45,7 @@ def analyze_full_resume(
         experience_entries=parsed_resume.get('experience', []),
         embedder=embedder,
         resume_text=resume_text,
+        certifications=parsed_resume.get('certifications', []),
     )
 
     jd_comparison_result = None

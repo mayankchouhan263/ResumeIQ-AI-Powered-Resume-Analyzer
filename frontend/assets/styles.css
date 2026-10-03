@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@600;700&display=swap');
+
 :root {
     /* Primary Colors */
     --primary-color: #4F46E5;
@@ -1743,8 +1745,8 @@ Animation utility classes */
 
     /* Text */
     --text: #E2E8F0;
-    --muted: #7C8A9E;
-    --dim: #3A4557;
+    --muted: #94A3B8;   /* 6.9:1 on card */
+    --dim: #7C8A9E;     /* 5.1:1 on card */
 
     /* Status */
     --green: #34D399;
@@ -1763,13 +1765,14 @@ Animation utility classes */
     --primary-dark: #C58A00;
 
     --text-primary: #E2E8F0;
-    --text-secondary: #7C8A9E;
+    --text-secondary: #94A3B8;
     --text-muted: #7C8A9E;
 
     --background-light: #0E1525;
     --background-white: #111827;
 
-    --border-color: rgba(255, 255, 255, 0.07);
+    --border: rgba(255, 255, 255, 0.09);
+    --border-color: rgba(255, 255, 255, 0.09);
     --border-light: rgba(255, 255, 255, 0.05);
 
     --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.18);
@@ -1801,7 +1804,8 @@ Animation utility classes */
 }
 
 /* Main content width */
-.main .block-container {
+.main .block-container,
+[data-testid="stMainBlockContainer"] {
     max-width: 1180px;
     padding-top: 2rem;
     padding-bottom: 5rem;
@@ -1886,7 +1890,8 @@ section[data-testid="stSidebar"] .stButton > button:hover {
 
 /* Primary Streamlit buttons */
 .stButton > button[kind="primary"],
-.stDownloadButton > button[kind="primary"] {
+.stDownloadButton > button[kind="primary"],
+button[data-testid="stBaseButton-primary"] {
     background: linear-gradient(
         135deg,
         var(--gold),
@@ -1898,7 +1903,8 @@ section[data-testid="stSidebar"] .stButton > button:hover {
 }
 
 .stButton > button[kind="primary"]:hover,
-.stDownloadButton > button[kind="primary"]:hover {
+.stDownloadButton > button[kind="primary"]:hover,
+button[data-testid="stBaseButton-primary"]:hover {
     color: #080D18;
     opacity: 0.92;
     box-shadow: 0 10px 30px rgba(255, 183, 0, 0.35);
@@ -1986,16 +1992,22 @@ section[data-testid="stSidebar"] .stButton > button:hover {
    EXPANDERS
    ========================================================= */
 
-.streamlit-expanderHeader {
+.streamlit-expanderHeader,
+[data-testid="stExpander"] details {
     background: var(--card);
     color: var(--text);
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
 }
 
-.streamlit-expanderHeader:hover {
+.streamlit-expanderHeader:hover,
+[data-testid="stExpander"] details:hover {
     color: var(--gold);
     border-color: rgba(255, 183, 0, 0.20);
+}
+
+[data-testid="stExpander"] summary {
+    color: var(--text);
 }
 
 /* =========================================================
@@ -2022,8 +2034,8 @@ section[data-testid="stSidebar"] .stButton > button:hover {
 
 div[data-testid="stAlert"] {
     border-radius: var(--radius-sm);
-    background: var(--card);
     border: 1px solid var(--border);
+    /* no background override: Streamlit tints error/warning/info/success itself */
 }
 
 /* =========================================================
@@ -2062,46 +2074,50 @@ div[data-testid="stAlert"] {
     text-transform: uppercase;
 }
 
-.resumeiq-hero h1 {
-    color: #FFFFFF;
-    font-family: "Playfair Display", Georgia, serif;
-    font-size: clamp(2.4rem, 5vw, 4rem);
-    font-weight: 700;
-    line-height: 1.08;
-    letter-spacing: -1.5px;
-    margin-bottom: 18px;
-}
-
-.resumeiq-hero h1 span {
-    background: linear-gradient(
-        135deg,
-        var(--gold),
-        var(--gold2)
-    );
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    background-clip: text;
-}
-
-.resumeiq-hero p {
-    max-width: 620px;
-    margin: 0 auto;
-    color: var(--muted);
-    font-size: 1rem;
-    line-height: 1.7;
-}
 
 /* =========================================================
    FEATURE CARDS
    ========================================================= */
 
 .resumeiq-feature {
-    height: 100%;
-    padding: 24px;
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: var(--radius);
-    transition: all 0.25s ease;
+
+    width: 100%;
+
+    min-height:
+        250px;
+
+    height:
+        250px;
+
+    box-sizing:
+        border-box;
+
+    padding:
+        26px;
+
+    background:
+        #111827;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.08);
+
+    border-radius:
+        14px;
+
+    display:
+        flex;
+
+    flex-direction:
+        column;
+
+    transition:
+        transform 0.25s ease,
+        border-color 0.25s ease,
+        box-shadow 0.25s ease;
+
+    overflow:
+        hidden;
 }
 
 .resumeiq-feature:hover {
@@ -2312,7 +2328,8 @@ div[data-testid="stAlert"] {
    ========================================================= */
 
 @media (max-width: 768px) {
-    .main .block-container {
+    .main .block-container,
+    [data-testid="stMainBlockContainer"] {
         padding-left: 1rem;
         padding-right: 1rem;
     }
@@ -2324,4 +2341,264 @@ div[data-testid="stAlert"] {
     .resumeiq-score {
         font-size: 4rem;
     }
+}
+.resumeiq-hero-title {
+    color: #FFFFFF;
+
+    font-family:
+        "Playfair Display",
+        Georgia,
+        serif;
+
+    font-size: clamp(2.4rem, 5vw, 4rem);
+    font-weight: 700;
+
+    line-height: 1.08;
+    letter-spacing: -1.5px;
+
+    margin-bottom: 18px;
+}
+
+.resumeiq-hero-title span {
+    background:
+        linear-gradient(
+            135deg,
+            #FFB700,
+            #FFD45A
+        );
+
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.resumeiq-hero-description {
+    max-width: 650px;
+
+    margin: 0 auto;
+
+    color: #7C8A9E;
+
+    font-family:
+        "DM Sans",
+        system-ui,
+        sans-serif;
+
+    font-size: 1rem;
+    line-height: 1.7;
+}
+
+/* =========================================================
+   TOP BAR 
+   ========================================================= */
+
+.st-key-resumeiq_topbar {
+
+    width: 100%;
+
+    padding:
+        12px 18px;
+
+    margin-bottom:
+        18px;
+
+    background:
+        linear-gradient(
+            135deg,
+            #141D2F 0%,
+            #101827 100%
+        );
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.08);
+
+    border-radius:
+        16px;
+
+    box-shadow:
+        0 10px 35px
+        rgba(0, 0, 0, 0.18);
+}
+
+
+/* Remove unnecessary column spacing */
+
+.st-key-resumeiq_topbar
+[data-testid="column"] {
+    padding:
+        0 5px !important;
+}
+
+
+/* =========================================================
+   BRAND
+   ========================================================= */
+
+.ri-topbar-brand {
+
+    padding:
+        5px 8px;
+
+    display:
+        flex;
+
+    flex-direction:
+        column;
+
+    justify-content:
+        center;
+}
+
+.ri-topbar-name {
+
+    color:
+        #FFFFFF;
+
+    font-family:
+        "Playfair Display",
+        Georgia,
+        serif;
+
+    font-size:
+        1.55rem;
+
+    font-weight:
+        700;
+
+    line-height:
+        1.05;
+}
+
+.ri-topbar-name span {
+    color:
+        #FFB700;
+}
+
+.ri-topbar-tagline {
+
+    margin-top:
+        4px;
+
+    color:
+        #8E9BAF;
+
+    font-family:
+        "DM Sans",
+        sans-serif;
+
+    font-size:
+        0.66rem;
+}
+
+
+/* =========================================================
+   NAVIGATION BUTTONS
+   ========================================================= */
+
+.st-key-resumeiq_topbar
+.stButton > button {
+
+    min-height:
+        43px !important;
+
+    width:
+        100% !important;
+
+    padding:
+        8px 10px !important;
+
+    background:
+        rgba(255, 255, 255, 0.025) !important;
+
+    border:
+        1px solid
+        rgba(255, 255, 255, 0.07) !important;
+
+    border-radius:
+        9px !important;
+
+    color:
+        #C8D1DE !important;
+
+    font-family:
+        "DM Sans",
+        sans-serif !important;
+
+    font-size:
+        0.78rem !important;
+
+    font-weight:
+        600 !important;
+
+    transition:
+        all 0.2s ease !important;
+}
+
+
+/* Home */
+
+.st-key-resumeiq_topbar
+[data-testid="column"]:nth-child(2)
+.stButton > button:hover {
+
+    color:
+        #60A5FA !important;
+
+    background:
+        rgba(96,165,250,0.08) !important;
+
+    border-color:
+        rgba(96,165,250,0.25) !important;
+}
+
+
+/* Analyze */
+
+.st-key-resumeiq_topbar
+[data-testid="column"]:nth-child(3)
+.stButton > button:hover {
+
+    color:
+        #FFB700 !important;
+
+    background:
+        rgba(255,183,0,0.08) !important;
+
+    border-color:
+        rgba(255,183,0,0.25) !important;
+}
+
+
+/* History */
+
+.st-key-resumeiq_topbar
+[data-testid="column"]:nth-child(4)
+.stButton > button:hover {
+
+    color:
+        #2DD4BF !important;
+
+    background:
+        rgba(45,212,191,0.08) !important;
+
+    border-color:
+        rgba(45,212,191,0.25) !important;
+}
+
+
+/* Resources */
+
+.st-key-resumeiq_topbar
+[data-testid="column"]:nth-child(5)
+.stButton > button:hover {
+
+    color:
+        #A78BFA !important;
+
+    background:
+        rgba(167,139,250,0.08) !important;
+
+    border-color:
+        rgba(167,139,250,0.25) !important;
 }

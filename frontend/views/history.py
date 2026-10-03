@@ -14,12 +14,38 @@ def _show_backend_error(exc: Exception) -> None:
 
 
 def render() -> None:
-    st.title("📊 Analysis History")
-    st.markdown("Past analyses saved against your account.")
+    st.markdown(
+        """
+        <div class="resumeiq-page-heading">
+            <div class="resumeiq-badge">✦ YOUR HISTORY</div>
+            <h1>Saved <span>analyses.</span></h1>
+            <p>Revisit resume analyses you've chosen to save.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
 
     access_token = st.session_state.get("access_token")
+
     if not access_token:
-        st.warning("⚠️ Sign in from the sidebar to view your history.")
+        st.markdown(
+            """
+            <div class="resumeiq-placeholder">
+                <div class="resumeiq-placeholder-icon">🔐</div>
+                <h3>Sign in to view your history</h3>
+                <p>
+                    Resume analysis itself does not require an account.
+                    To create history, analyze a resume and choose
+                    <strong>Save to History</strong> at the end.
+                </p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+        if st.button("🎯 Go to ATS Scorer", use_container_width=True, type="primary"):
+            st.session_state.current_view = "scorer"
+            st.rerun()
         return
 
     try:
@@ -29,14 +55,16 @@ def render() -> None:
         return
 
     if not history:
-        st.info("No saved analyses yet. After scoring a resume, click 'Save to History' on the ATS Scorer page.")
-        if st.button("🎯 Go to ATS Scorer"):
+        st.info(
+            "No saved analyses yet. Analyze a resume, then click 'Save to History'."
+        )
+        if st.button("🎯 Analyze a Resume", use_container_width=True, type="primary"):
             st.session_state.current_view = "scorer"
             st.rerun()
         return
 
-    st.markdown(f"**Total analyses:** {len(history)}")
-    st.markdown("---")
+    st.markdown(f"**Total saved analyses:** {len(history)}")
+    st.markdown("<div class='resumeiq-divider'></div>", unsafe_allow_html=True)
 
     for idx, entry in enumerate(history):
         filename = entry.get("filename", "resume")
@@ -47,7 +75,10 @@ def render() -> None:
         component_scores = analysis.get("component_scores", {}) or {}
         jd_comparison = analysis.get("jd_comparison") or analysis.get("jd_match_analysis")
 
-        with st.expander(f"📄 {filename} — Score: {ats_score:.0f}/100 — {created_at}"):
+        with st.expander(
+            f"📄 {filename} — {ats_score:.0f}/100 — {created_at}",
+            expanded=False,
+        ):
             c1, c2, c3 = st.columns(3)
             with c1:
                 st.metric("Overall", f"{ats_score:.0f}/100")
@@ -56,11 +87,19 @@ def render() -> None:
                 st.metric("Keywords", f"{component_scores.get('keywords', 0):.0f}/25")
                 st.metric("Content", f"{component_scores.get('content', 0):.0f}/25")
             with c3:
-                st.metric("Skill Validation", f"{component_scores.get('skill_validation', 0):.0f}/15")
-                st.metric("ATS Compatibility", f"{component_scores.get('ats_compatibility', 0):.0f}/15")
+                st.metric(
+                    "Skill Validation",
+                    f"{component_scores.get('skill_validation', 0):.0f}/15",
+                )
+                st.metric(
+                    "ATS Compatibility",
+                    f"{component_scores.get('ats_compatibility', 0):.0f}/15",
+                )
 
             if jd_comparison:
-                st.markdown(f"**JD Match:** {jd_comparison.get('match_percentage', 0):.0f}%")
+                st.markdown(
+                    f"**JD Match:** {jd_comparison.get('match_percentage', 0):.0f}%"
+                )
 
             entry_id = entry.get("id")
             if entry_id:
