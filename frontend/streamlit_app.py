@@ -120,6 +120,7 @@ with st.sidebar:
                     st.session_state.refresh_token = result["refresh_token"]
                     st.session_state.user_id       = result["user_id"]
                     st.session_state.user_email    = result["email"]
+                                   
                 st.rerun()
 
         with tab_up:

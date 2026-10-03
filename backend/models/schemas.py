@@ -51,3 +51,9 @@ class AnalysisResponse(BaseModel):
     jd_comparison: Optional[JDComparison] = None
     warnings: List[str] = []
     interpretation: str = ""
+
+
+class SaveAnalysisRequest(BaseModel):
+    """Body for POST /save-analysis — the result the user already received + the file name."""
+    filename: str = "resume"
+    analysis: AnalysisResponse

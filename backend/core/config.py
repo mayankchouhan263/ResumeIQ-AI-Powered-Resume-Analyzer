@@ -48,9 +48,14 @@ SCORE_WEIGHTS = {
 JD_KEYWORD_WEIGHT=0.6
 JD_SEMANTIC_WEIGHT=0.4
 
-SUPABASE_URL       = os.getenv('SUPABASE_URL', '')
-SUPABASE_KEY       = os.getenv('SUPABASE_KEY', '')          # service_role — DB writes (bypasses RLS)
-SUPABASE_ANON_KEY  = os.getenv('SUPABASE_ANON_KEY', '')     # public anon — frontend auth calls
-SUPABASE_JWT_SECRET= os.getenv('SUPABASE_JWT_SECRET', '')   # used by backend to verify access tokens
+def _env(name: str) -> str:
+    """Read an env var and strip stray whitespace, quotes and <angle brackets> (a common paste mistake)."""
+    return os.getenv(name, '').strip().strip('\'"<> \t')
+
+
+SUPABASE_URL       = _env('SUPABASE_URL')
+SUPABASE_KEY       = _env('SUPABASE_KEY')          # service_role — DB writes (bypasses RLS)
+SUPABASE_ANON_KEY  = _env('SUPABASE_ANON_KEY')     # public anon — frontend auth calls
+SUPABASE_JWT_SECRET= _env('SUPABASE_JWT_SECRET')   # used by backend to verify access tokens
 GROQ_API_KEY       = os.getenv('GROQ_API_KEY', '')
 

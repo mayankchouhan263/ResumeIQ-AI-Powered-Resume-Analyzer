@@ -1,16 +1,85 @@
-import os
-import json 
+import copy
+import hashlib
+import json
 import logging
-from typing import Dict
+import os
+import re
+import threading
+from collections import OrderedDict
+from pathlib import Path
+from typing import Dict, List
 
 from groq import Groq
 
 logger=logging.getLogger('ats_resume_scorer')
 
 
-GROQ_MODEL='llama-3.3-70b-versatile'
+# GROQ_MODEL='llama-3.3-70b-versatile'
+GROQ_MODEL = os.getenv('GROQ_MODEL', 'openai/gpt-oss-120b')
+
 
 _client=None
+
+# -- Determinism helpers ------------------------------------------------------
+# An LLM call is never perfectly repeatable (even at temperature 0), and every score
+# in this app is computed from what the LLM extracts. So the same resume text must
+# always map to the same extraction: we cache it, keyed by a hash of the text.
+PARSER_VERSION = 'v2'        # bump when you change the prompts, to invalidate old cache entries
+_CACHE_MAX     = 256
+_mem_cache = OrderedDict()
+_cache_lock    = threading.Lock()
+# Optional on-disk cache (survives restarts). Off by default: it would store parsed
+# resumes (names, emails, phones) on disk. Set RESUME_PARSE_CACHE_DIR to enable.
+_DISK_DIR = os.getenv('RESUME_PARSE_CACHE_DIR')
+
+
+def _cache_key(kind: str, text: str) -> str:
+    norm = re.sub(r'\s+', ' ', text).strip()
+    raw  = f'{PARSER_VERSION}|{GROQ_MODEL}|{kind}|{norm}'
+    return hashlib.sha256(raw.encode('utf-8')).hexdigest()
+
+
+def _cache_put(key: str, value: dict, to_disk: bool = True) -> None:
+    with _cache_lock:
+        _mem_cache[key] = copy.deepcopy(value)
+        _mem_cache.move_to_end(key)
+        while len(_mem_cache) > _CACHE_MAX:
+            _mem_cache.popitem(last=False)
+    if _DISK_DIR and to_disk:
+        try:
+            Path(_DISK_DIR).mkdir(parents=True, exist_ok=True)
+            (Path(_DISK_DIR) / f'{key}.json').write_text(json.dumps(value), encoding='utf-8')
+        except Exception as exc:
+            logger.warning(f'Could not write parse cache: {exc}')
+
+
+def _cache_get(key: str):
+    with _cache_lock:
+        if key in _mem_cache:
+            _mem_cache.move_to_end(key)
+            return copy.deepcopy(_mem_cache[key])
+    if _DISK_DIR:
+        f = Path(_DISK_DIR) / f'{key}.json'
+        if f.exists():
+            try:
+                value = json.loads(f.read_text(encoding='utf-8'))
+                _cache_put(key, value, to_disk=False)
+                return copy.deepcopy(value)
+            except Exception:
+                return None
+    return None
+
+
+def dedupe_terms(items) -> List[str]:
+    """Strip, drop empties, remove case-insensitive duplicates, return in a stable sorted order."""
+    seen = {}
+    for it in items or []:
+        if not isinstance(it, str):
+            continue
+        t = re.sub(r'\s+', ' ', it).strip()
+        if t and t.lower() not in seen:
+            seen[t.lower()] = t
+    return [seen[k] for k in sorted(seen)]
 
 def _get_client()->Groq:
     global _client
@@ -77,15 +146,24 @@ Resume Text:
 
 def _call_groq(client:Groq, system_prompt:str, user_prompt:str)->str:
 
-    response=client.chat.completions.create(
-        model=GROQ_MODEL, 
+    kwargs = dict(
+        model=GROQ_MODEL,
         messages=[
             {'role': 'system', 'content': system_prompt},
             {'role': 'user', 'content': user_prompt}
         ],
         temperature=0.0,
-        max_tokens=4096
+        seed=42,                 # best-effort repeatability on Groq
+        max_tokens=4096,
     )
+    try:
+        response = client.chat.completions.create(
+            response_format={'type': 'json_object'}, **kwargs
+        )
+    except Exception as exc:
+        # Some models reject response_format; fall back to the plain call.
+        logger.warning(f'Groq call with json_object failed ({exc}); retrying without it')
+        response = client.chat.completions.create(**kwargs)
 
     return response.choices[0].message.content.strip()
 
@@ -109,13 +187,24 @@ def _try_parse_json(text: str) -> dict | None:
         return None
     
 def parse_resume(raw_text: str)->Dict:
+    key = _cache_key('resume', raw_text)
+    cached = _cache_get(key)
+    if cached is not None:
+        logger.info('Resume parse: cache hit (same text -> same extraction)')
+        return cached
+    result = _parse_resume_uncached(raw_text)
+    _cache_put(key, result)
+    return copy.deepcopy(result)
+
+
+def _parse_resume_uncached(raw_text: str)->Dict:
 
     client=_get_client()
     prompt=RESUME_USER_PROMPT.format(raw_text=raw_text)
     raw_response=_call_groq(client, RESUME_SYSTEM_PROMPT, prompt)
     result=_try_parse_json(raw_response)
 
-    if result is None:
+    if result is not None:
         return _validate_resume_result(result)
     
 
@@ -161,6 +250,17 @@ Job Description Text:
 {raw_text}"""
 
 def parse_job_description(raw_text: str) -> Dict:
+    key = _cache_key('jd', raw_text)
+    cached = _cache_get(key)
+    if cached is not None:
+        logger.info('JD parse: cache hit')
+        return cached
+    result = _parse_jd_uncached(raw_text)
+    _cache_put(key, result)
+    return copy.deepcopy(result)
+
+
+def _parse_jd_uncached(raw_text: str) -> Dict:
     client = _get_client()
     prompt = JD_USER_PROMPT.format(raw_text=raw_text)
 
@@ -203,6 +303,9 @@ def _validate_jd_result(result: dict) -> dict:
         if isinstance(default, list) and not isinstance(result[key], list):
             result[key] = default
 
+    for k in ("required_skills", "preferred_skills", "keywords"):
+        result[k] = dedupe_terms(result.get(k))
+
     return result
 
 
@@ -231,6 +334,10 @@ def _validate_resume_result(result: dict) -> dict:
         # Ensure list fields are actually lists
         if isinstance(default, list) and not isinstance(result[key], list):
             result[key] = default
+
+    # Normalise term lists: strip, de-duplicate (case-insensitive), stable order
+    for k in ("skills", "keywords", "action_verbs", "certifications"):
+        result[k] = dedupe_terms(result.get(k))
 
     #Validate experience entries
     for exp in result.get("experience", []):

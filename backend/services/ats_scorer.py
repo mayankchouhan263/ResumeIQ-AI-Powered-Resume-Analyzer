@@ -99,69 +99,238 @@ def _skill_matches(skill: str, text: str, embedder: SentenceTransformer, thresho
     sim = _calculate_semantic_similarity(skill, text, embedder)
     return sim >= threshold, sim
 
-#Skill validation
+# -- Skill validation ---------------------------------------------------------
+# A skill is "validated" when the resume shows evidence of using it:
+#   1. it appears (as a whole word / known alias) in a project's title, description
+#      or technologies list, or in the experience section
+#   2. a link in the resume proves it (a GitHub/GitLab link proves Git; a
+#      streamlit.app / vercel.app / huggingface.co link proves that platform)
+#   3. fallback: a sentence in a project/experience is semantically close to the skill
+# Soft skills (teamwork, communication...) cannot be proven by a project, so they are
+# left out of the score instead of counting as "unvalidated".
+
+_ALIAS_GROUPS = [
+    {'machine learning', 'ml'}, {'deep learning', 'dl'},
+    {'natural language processing', 'nlp'}, {'scikit-learn', 'sklearn', 'scikit learn'},
+    {'postgresql', 'postgres'}, {'javascript', 'js', 'ecmascript'}, {'typescript', 'ts'},
+    {'react', 'react.js', 'reactjs'}, {'node.js', 'nodejs'}, {'next.js', 'nextjs'},
+    {'vue.js', 'vuejs', 'vue'}, {'tensorflow', 'tf'}, {'mongodb', 'mongo'},
+    {'amazon web services', 'aws'}, {'google cloud platform', 'gcp', 'google cloud'},
+    {'ci/cd', 'cicd'}, {'rest api', 'rest apis', 'restful api', 'restful apis'},
+    {'html', 'html5'}, {'css', 'css3'}, {'c++', 'cpp'}, {'c#', 'csharp'},
+    {'power bi', 'powerbi'}, {'ms excel', 'microsoft excel', 'excel'},
+    {'large language models', 'large language model', 'llm', 'llms'},
+    {'generative ai', 'genai', 'gen ai'},
+    {'object oriented programming', 'object-oriented programming', 'oop', 'oops'},
+    {'data structures and algorithms', 'dsa'}, {'k-means', 'kmeans'},
+    {'opencv', 'open cv'}, {'hugging face', 'huggingface'}, {'fastapi', 'fast api'},
+    {'express.js', 'expressjs'}, {'spring boot', 'springboot'},
+]
+_ALIAS_LOOKUP: Dict[str, set] = {}
+for _g in _ALIAS_GROUPS:
+    for _t in _g:
+        _ALIAS_LOOKUP[_t] = _g
+
+_SOFT_SKILLS = {
+    'communication', 'teamwork', 'team work', 'team player', 'leadership', 'problem solving',
+    'problem-solving', 'time management', 'adaptability', 'collaboration', 'critical thinking',
+    'creativity', 'work ethic', 'attention to detail', 'interpersonal skills', 'multitasking',
+    'decision making', 'decision-making', 'conflict resolution', 'public speaking',
+    'analytical skills', 'analytical thinking', 'self-motivated', 'quick learner',
+    'fast learner', 'teamwork and collaboration', 'verbal communication',
+    'written communication', 'project management', 'emotional intelligence', 'flexibility',
+}
+
+_VCS_WORDS = {'git', 'github', 'gitlab', 'bitbucket'}
+_VCS_PHRASES = {'version control', 'source control', 'version control systems'}
+_VCS_HOSTS = ('github.com', 'gitlab.com', 'bitbucket.org', 'github.io')
+_URL_RE = re.compile(
+    r'https?://[^\s<>)\]"\']+|(?:www\.)?(?:github|gitlab|bitbucket)\.(?:com|org)/[^\s<>)\]"\']+',
+    re.IGNORECASE,
+)
+_GENERIC_URL_TOKENS = {
+    'com', 'www', 'org', 'net', 'app', 'dev', 'io', 'html', 'http', 'https', 'index', 'blog',
+    'pdf', 'the', 'page', 'pages', 'home', 'main', 'master', 'public', 'user', 'users',
+}
+
+
+def _term_regex(term: str):
+    """Whole-word regex for a skill. 1-2 letter terms (R, C, Go, JS) are case-sensitive."""
+    t = term.strip()
+    if len(t) <= 2:
+        body  = '|'.join(re.escape(f) for f in {t, t.upper()})
+        flags = 0
+    else:
+        body  = re.sub(r'(?:\\ |\\-)+', r'[\\s\\-]*', re.escape(t))
+        flags = re.IGNORECASE
+    return re.compile(r'(?<![A-Za-z0-9+#.])(?:' + body + r')(?![A-Za-z0-9+#])', flags)
+
+
+def _skill_variants(skill: str) -> List[str]:
+    s = skill.strip()
+    base = re.sub(r'\([^)]*\)', '', s).strip()
+    inner = [x.strip() for x in re.findall(r'\(([^)]*)\)', s) if x.strip()]
+    out = set()
+    for v in {s, base, *inner}:
+        if not v:
+            continue
+        out.add(v)
+        out.update(_ALIAS_LOOKUP.get(v.lower(), ()))
+    return sorted(out)
+
+
+def _is_soft_skill(skill: str) -> bool:
+    return re.sub(r'\([^)]*\)', '', skill).strip().lower() in _SOFT_SKILLS
+
+
+def _is_vcs_skill(skill: str) -> bool:
+    s = re.sub(r'\([^)]*\)', '', skill).strip().lower()
+    if s in _VCS_PHRASES:
+        return True
+    parts = [p for p in re.split(r'[^a-z]+', s) if p]
+    return bool(parts) and all(p in _VCS_WORDS for p in parts)
+
+
+def _vcs_evidence(urls: List[str], resume_text: str) -> Optional[str]:
+    best = None
+    for u in urls:
+        low = u.lower()
+        if any(h in low for h in _VCS_HOSTS):
+            path = re.sub(r'^(?:https?://)?(?:www\.)?[^/]+/?', '', low).strip('/')
+            if len([seg for seg in path.split('/') if seg]) >= 2:
+                return 'GitHub repo link'
+            best = 'GitHub profile link'
+    if best:
+        return best
+    if re.search(r'\b(github|gitlab|bitbucket)\b', resume_text or '', re.IGNORECASE):
+        return 'GitHub mention'
+    return None
+
+
+def _link_evidence(variants: List[str], urls: List[str]) -> Optional[str]:
+    """A skill named by a link's host/path (streamlit.app, vercel.app, huggingface.co...)."""
+    if not urls:
+        return None
+    compacts = {re.sub(r'[^a-z0-9]', '', v.lower()) for v in variants}
+    compacts = {c for c in compacts if len(c) >= 3 and c not in _GENERIC_URL_TOKENS
+                and c not in _VCS_WORDS}
+    if not compacts:
+        return None
+    for u in urls:
+        tokens = [t for t in re.split(r'[^a-z0-9]+', u.lower()) if t]
+        pool = set(tokens) | {a + b for a, b in zip(tokens, tokens[1:])}
+        if compacts & pool:
+            return 'Project link'
+    return None
+
+
+def _project_text(p: Dict) -> str:
+    tech = p.get('technologies') or []
+    tech_txt = ', '.join(str(t) for t in tech) if isinstance(tech, list) else str(tech)
+    return f"{p.get('title', '')}. {p.get('description', '')}. {tech_txt}"
+
+
 def validate_skills_with_projects(
     skills: List[str],
     projects: List[Dict],
     experience_entries: List[Dict],
-    embedder: SentenceTransformer,
-    threshold: float = 0.6,
+    embedder: Optional[SentenceTransformer] = None,
+    threshold: float = 0.5,
+    resume_text: str = '',
 ) -> Dict:
-    
-    if not skills:
+
+    def _result(validated, unvalidated, soft):
+        total = len(validated) + len(unvalidated)
+        pct   = (len(validated) / total) if total else 0.0
         return {
-            'validated_skills':      [],
-            'unvalidated_skills':    [],
-            'validation_percentage': 0.0,
-            'skill_project_mapping': {},
-            'validation_score':      0.0,
+            'validated_skills':      validated,
+            'unvalidated_skills':    unvalidated,
+            'soft_skills':           soft,
+            'validation_percentage': pct,
+            'skill_project_mapping': {
+                **{v['skill']: v['projects'] for v in validated},
+                **{u: [] for u in unvalidated},
+            },
+            'validation_score':      pct * 15.0,
         }
 
+    if not skills:
+        return _result([], [], [])
+
+    soft      = [s for s in skills if _is_soft_skill(s)]
+    technical = [s for s in skills if not _is_soft_skill(s)]
+    if not technical:
+        return _result([], [], soft)
+
+    # Evidence sources: (label, text)
+    sources: List[Tuple[str, str]] = []
+    for p in projects or []:
+        if isinstance(p, dict):
+            sources.append((p.get('title') or 'Untitled Project', _project_text(p)))
     experience_text = ' '.join(
         f"{e.get('job_title', '')} {e.get('company', '')} {e.get('description', '')}"
-        for e in experience_entries
-        if isinstance(e, dict)
+        for e in (experience_entries or []) if isinstance(e, dict)
     ).strip()
+    if experience_text:
+        sources.append(('Experience Section', experience_text))
 
-    validated_skills      = []
-    unvalidated_skills    = []
-    skill_project_mapping = {}
+    urls = _URL_RE.findall(resume_text or '')
 
-    for skill in skills:
-        matching_projects = []
-        max_similarity    = 0.0
+    status: Dict[str, Dict] = {}
+    pending: List[str] = []
 
-        for project in projects:
-            project_text = f"{project.get('title', '')} {project.get('description', '')}"
-            matched, sim = _skill_matches(skill, project_text, embedder, threshold)
-            max_similarity = max(max_similarity, sim)
+    for skill in technical:
+        variants = _skill_variants(skill)
+        regexes  = [_term_regex(v) for v in variants]
+        labels: List[str] = []
 
-            if matched:
-                matching_projects.append(project.get('title', 'Untitled Project'))
+        for label, text in sources:
+            if label not in labels and any(r.search(text) for r in regexes):
+                labels.append(label)
 
-        if experience_text:
-            matched, sim = _skill_matches(skill, experience_text, embedder, threshold)
-            max_similarity = max(max_similarity, sim)
-            if matched and 'Experience Section' not in matching_projects:
-                matching_projects.append('Experience Section')
-
-        if matching_projects:
-            validated_skills.append({'skill': skill, 'projects': matching_projects, 'similarity': max_similarity})
-            skill_project_mapping[skill] = matching_projects
+        if _is_vcs_skill(skill):
+            ev = _vcs_evidence(urls, resume_text)
+            if ev and ev not in labels:
+                labels.append(ev)
         else:
-            unvalidated_skills.append(skill)
-            skill_project_mapping[skill] = []
+            ev = _link_evidence(variants, urls)
+            if ev and ev not in labels:
+                labels.append(ev)
 
-    validation_percentage = len(validated_skills) / len(skills)
-    validation_score      = validation_percentage * 15.0
+        if labels:
+            status[skill] = {'skill': skill, 'projects': labels, 'similarity': 1.0}
+        else:
+            pending.append(skill)
 
-    return {
-        'validated_skills':      validated_skills,
-        'unvalidated_skills':    unvalidated_skills,
-        'validation_percentage': validation_percentage,
-        'skill_project_mapping': skill_project_mapping,
-        'validation_score':      validation_score,
-    }
+    # Semantic fallback: one batch encode, compare against individual sentences.
+    if pending and embedder is not None and sources:
+        chunks: List[Tuple[str, str]] = []
+        for label, text in sources:
+            for part in re.split(r'(?<=[.!?])\s+|\n|;|•', text):
+                part = part.strip()
+                if len(part) >= 15:
+                    chunks.append((label, part))
+        candidates = [s for s in pending if len(s) > 2]
+        if chunks and candidates:
+            try:
+                chunk_vecs = embedder.encode([c[1] for c in chunks], convert_to_numpy=True,
+                                             normalize_embeddings=True, show_progress_bar=False)
+                skill_vecs = embedder.encode(candidates, convert_to_numpy=True,
+                                             normalize_embeddings=True, show_progress_bar=False)
+                sims = np.asarray(skill_vecs) @ np.asarray(chunk_vecs).T
+                for i, skill in enumerate(candidates):
+                    j = int(np.argmax(sims[i]))
+                    if float(sims[i][j]) >= threshold:
+                        status[skill] = {'skill': skill,
+                                         'projects': [f'{chunks[j][0]} (related)'],
+                                         'similarity': float(sims[i][j])}
+            except Exception as e:
+                log_warning(f'Semantic skill validation skipped: {e}', context='ats_scorer')
+
+    validated   = [status[s] for s in technical if s in status]
+    unvalidated = [s for s in technical if s not in status]
+    return _result(validated, unvalidated, soft)
+
 
 #01: formatting score
 def _calc_formatting_score(parsed_resume: Dict, text: str) -> float:

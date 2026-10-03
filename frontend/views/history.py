@@ -29,7 +29,7 @@ def render() -> None:
         return
 
     if not history:
-        st.info("No analyses yet for this account. Run a scoring on the ATS Scorer page first.")
+        st.info("No saved analyses yet. After scoring a resume, click 'Save to History' on the ATS Scorer page.")
         if st.button("🎯 Go to ATS Scorer"):
             st.session_state.current_view = "scorer"
             st.rerun()

@@ -1,11 +1,11 @@
 import io
-import magic
 from typing import Tuple, Optional, Tuple
 
 import pdfplumber
 from docx import Document
 import PyPDF2
 
+from backend.utils.file_detect import detect_mime
 from backend.utils.file_utils import(
     FileParsingError, 
     TextExtractionError, 
@@ -41,7 +41,7 @@ def validate_file(file_data:bytes, filename:str)->Tuple[bool, str, Optional[str]
         return False, 'uploade file is empty...please check the file you have uploaded and try again', None
     
     try:
-        mime_type=magic.from_buffer(file_data, mime=True)
+        mime_type = detect_mime(file_data)
     except Exception as e:
         return False, f"error deteminin the file type : {e}", None
     

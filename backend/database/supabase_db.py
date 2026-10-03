@@ -18,10 +18,27 @@ def _get_headers():
         "Prefer": "return=representation"
     }
 
+class SupabaseError(RuntimeError):
+    """Raised with a human-readable reason so the API can tell the user what actually went wrong."""
+
+
+def _explain(status: int, body: str) -> str:
+    low = body.lower()
+    if 'invalid api key' in low:
+        return ('Supabase rejected SUPABASE_KEY (Invalid API key). In backend/.env use the '
+                'service_role / secret key, with no quotes, spaces or < > around it.')
+    if 'row-level security' in low or '42501' in low:
+        return ('Supabase blocked the insert (row-level security). SUPABASE_KEY must be the '
+                'service_role key, not the anon key - or add an INSERT policy on "analyses".')
+    if '42p01' in low or 'does not exist' in low or 'could not find the table' in low:
+        return 'The "analyses" table does not exist in Supabase yet - create it first.'
+    return f'Supabase returned {status}: {body[:300]}'
+
+
 async def save_analysis(user_id: str, filename: str, analysis_result: Dict) -> Optional[str]:
     headers = _get_headers()
     if not headers:
-        return None
+        raise SupabaseError('SUPABASE_URL or SUPABASE_KEY is not set in backend/.env')
 
     def _json_default(o):
         if hasattr(o, 'model_dump'):
@@ -51,9 +68,14 @@ async def save_analysis(user_id: str, filename: str, analysis_result: Dict) -> O
                 logger.info(f"Saved analysis for user {user_id}: {inserted_id}")
                 return inserted_id
             return None
+    except httpx.HTTPStatusError as exc:
+        logger.error(
+            f"Failed to save analysis to Supabase: {exc.response.status_code} {exc.response.text}"
+        )
+        raise SupabaseError(_explain(exc.response.status_code, exc.response.text)) from exc
     except Exception as exc:
         logger.error(f"Failed to save analysis to Supabase: {exc}")
-        return None
+        raise SupabaseError(f'Could not reach Supabase: {exc}') from exc
 
 async def get_user_history(user_id: str) -> List[Dict]:
     headers = _get_headers()

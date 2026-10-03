@@ -1720,3 +1720,608 @@ Animation utility classes */
     max-width: 300px;
     margin: 0 auto;
 }
+
+/* =========================================================
+   RESUMEIQ — PREMIUM DARK + BRIGHT YELLOW THEME
+   ========================================================= */
+
+:root {
+    /* Dark theme */
+    --bg: #080D18;
+    --bg2: #0E1525;
+    --card: #111827;
+    --card-h: #141F33;
+
+    /* Bright yellow from your preferred CSS */
+    --gold: #FFB700;
+    --gold2: #FFD45A;
+    --gold-glow: rgba(255, 183, 0, 0.15);
+
+    /* Secondary accent */
+    --teal: #2DD4BF;
+    --teal-glow: rgba(45, 212, 191, 0.12);
+
+    /* Text */
+    --text: #E2E8F0;
+    --muted: #7C8A9E;
+    --dim: #3A4557;
+
+    /* Status */
+    --green: #34D399;
+    --red: #F87171;
+    --amber: #FBBF24;
+    --orange: #FB923C;
+
+    /* Layout */
+    --radius: 14px;
+    --radius-sm: 9px;
+
+    /* Override old theme variables */
+    --primary-color: #FFB700;
+    --primary-hover: #FFD45A;
+    --primary-light: #FFD45A;
+    --primary-dark: #C58A00;
+
+    --text-primary: #E2E8F0;
+    --text-secondary: #7C8A9E;
+    --text-muted: #7C8A9E;
+
+    --background-light: #0E1525;
+    --background-white: #111827;
+
+    --border-color: rgba(255, 255, 255, 0.07);
+    --border-light: rgba(255, 255, 255, 0.05);
+
+    --shadow-sm: 0 4px 12px rgba(0, 0, 0, 0.18);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.24);
+    --shadow-lg: 0 14px 40px rgba(0, 0, 0, 0.30);
+    --shadow-xl: 0 20px 50px rgba(0, 0, 0, 0.35);
+}
+
+/* =========================================================
+   GLOBAL APP
+   ========================================================= */
+
+.stApp {
+    background:
+        radial-gradient(
+            ellipse 70% 50% at 5% 0%,
+            rgba(255, 183, 0, 0.08) 0%,
+            transparent 55%
+        ),
+        radial-gradient(
+            ellipse 50% 70% at 95% 100%,
+            rgba(45, 212, 191, 0.05) 0%,
+            transparent 55%
+        ),
+        #080D18;
+
+    color: var(--text);
+    font-family: "DM Sans", system-ui, sans-serif;
+}
+
+/* Main content width */
+.main .block-container {
+    max-width: 1180px;
+    padding-top: 2rem;
+    padding-bottom: 5rem;
+}
+
+/* Headings */
+.stApp h1,
+.stApp h2,
+.stApp h3 {
+    color: #FFFFFF;
+    font-family: "Playfair Display", Georgia, serif;
+}
+
+.stApp h1 {
+    letter-spacing: -1px;
+}
+
+.stApp p,
+.stApp label,
+.stApp .stMarkdown {
+    color: var(--text);
+}
+
+/* =========================================================
+   SIDEBAR
+   ========================================================= */
+
+section[data-testid="stSidebar"] {
+    background: #0E1525;
+    border-right: 1px solid var(--border);
+}
+
+section[data-testid="stSidebar"] * {
+    color: var(--text);
+}
+
+section[data-testid="stSidebar"] h2,
+section[data-testid="stSidebar"] h3 {
+    color: #FFFFFF;
+}
+
+section[data-testid="stSidebar"] .stButton > button {
+    background: transparent;
+    color: var(--muted);
+    border: 1px solid transparent;
+    border-radius: 10px;
+    font-weight: 600;
+    transition: all 0.2s ease;
+}
+
+section[data-testid="stSidebar"] .stButton > button:hover {
+    background: var(--gold-glow);
+    color: var(--gold);
+    border-color: rgba(255, 183, 0, 0.20);
+}
+
+/* =========================================================
+   BUTTONS
+   ========================================================= */
+
+.stButton > button,
+.stDownloadButton > button {
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255, 183, 0, 0.25);
+    background: var(--card);
+    color: var(--text);
+    font-weight: 700;
+    transition:
+        transform 0.2s ease,
+        background 0.2s ease,
+        border-color 0.2s ease,
+        box-shadow 0.2s ease;
+}
+
+.stButton > button:hover,
+.stDownloadButton > button:hover {
+    transform: translateY(-1px);
+    border-color: var(--gold);
+    color: var(--gold);
+    box-shadow: 0 8px 24px rgba(255, 183, 0, 0.12);
+}
+
+/* Primary Streamlit buttons */
+.stButton > button[kind="primary"],
+.stDownloadButton > button[kind="primary"] {
+    background: linear-gradient(
+        135deg,
+        var(--gold),
+        var(--gold2)
+    );
+    color: #080D18;
+    border: none;
+    box-shadow: 0 6px 22px rgba(255, 183, 0, 0.25);
+}
+
+.stButton > button[kind="primary"]:hover,
+.stDownloadButton > button[kind="primary"]:hover {
+    color: #080D18;
+    opacity: 0.92;
+    box-shadow: 0 10px 30px rgba(255, 183, 0, 0.35);
+}
+
+/* =========================================================
+   CARDS
+   ========================================================= */
+
+.metric-card,
+.card-elevated,
+.feature-card,
+.stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    box-shadow: var(--shadow-sm);
+    color: var(--text);
+    transition:
+        transform 0.25s ease,
+        border-color 0.25s ease,
+        box-shadow 0.25s ease;
+}
+
+.metric-card:hover,
+.card-elevated:hover,
+.feature-card:hover,
+.stat-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(255, 183, 0, 0.20);
+    box-shadow: var(--shadow-lg);
+}
+
+/* =========================================================
+   FILE UPLOADER
+   ========================================================= */
+
+[data-testid="stFileUploader"] {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px;
+}
+
+[data-testid="stFileUploaderDropzone"] {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px dashed rgba(255, 183, 0, 0.30);
+    border-radius: var(--radius-sm);
+}
+
+[data-testid="stFileUploaderDropzone"]:hover {
+    border-color: var(--gold);
+    background: rgba(255, 183, 0, 0.04);
+}
+
+/* =========================================================
+   TEXT INPUTS / TEXT AREA
+   ========================================================= */
+
+.stTextInput input,
+.stTextArea textarea,
+.stSelectbox div[data-baseweb="select"] > div {
+    background: rgba(255, 255, 255, 0.04);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.stTextInput input:focus,
+.stTextArea textarea:focus {
+    border-color: rgba(255, 183, 0, 0.50);
+    box-shadow: 0 0 0 1px rgba(255, 183, 0, 0.20);
+}
+
+/* =========================================================
+   RADIO BUTTONS / CHECKBOXES
+   ========================================================= */
+
+.stRadio label,
+.stCheckbox label {
+    color: var(--text) !important;
+}
+
+/* =========================================================
+   EXPANDERS
+   ========================================================= */
+
+.streamlit-expanderHeader {
+    background: var(--card);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+}
+
+.streamlit-expanderHeader:hover {
+    color: var(--gold);
+    border-color: rgba(255, 183, 0, 0.20);
+}
+
+/* =========================================================
+   TABS
+   ========================================================= */
+
+.stTabs [data-baseweb="tab-list"] {
+    gap: 6px;
+    background: transparent;
+}
+
+.stTabs [data-baseweb="tab"] {
+    color: var(--muted);
+    border-radius: 8px;
+}
+
+.stTabs [aria-selected="true"] {
+    color: var(--gold);
+}
+
+/* =========================================================
+   ALERTS
+   ========================================================= */
+
+div[data-testid="stAlert"] {
+    border-radius: var(--radius-sm);
+    background: var(--card);
+    border: 1px solid var(--border);
+}
+
+/* =========================================================
+   PROGRESS BAR
+   ========================================================= */
+
+.stProgress > div > div > div {
+    background: var(--gold);
+}
+
+/* =========================================================
+   HERO
+   ========================================================= */
+
+.resumeiq-hero {
+    text-align: center;
+    padding: 70px 24px 55px;
+}
+
+.resumeiq-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+
+    padding: 6px 16px;
+    margin-bottom: 22px;
+
+    border-radius: 50px;
+    border: 1px solid rgba(255, 183, 0, 0.30);
+    background: rgba(255, 183, 0, 0.07);
+
+    color: var(--gold2);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.7px;
+    text-transform: uppercase;
+}
+
+.resumeiq-hero h1 {
+    color: #FFFFFF;
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: clamp(2.4rem, 5vw, 4rem);
+    font-weight: 700;
+    line-height: 1.08;
+    letter-spacing: -1.5px;
+    margin-bottom: 18px;
+}
+
+.resumeiq-hero h1 span {
+    background: linear-gradient(
+        135deg,
+        var(--gold),
+        var(--gold2)
+    );
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+.resumeiq-hero p {
+    max-width: 620px;
+    margin: 0 auto;
+    color: var(--muted);
+    font-size: 1rem;
+    line-height: 1.7;
+}
+
+/* =========================================================
+   FEATURE CARDS
+   ========================================================= */
+
+.resumeiq-feature {
+    height: 100%;
+    padding: 24px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    transition: all 0.25s ease;
+}
+
+.resumeiq-feature:hover {
+    transform: translateY(-5px);
+    border-color: rgba(255, 183, 0, 0.25);
+    box-shadow: var(--shadow-lg);
+}
+
+.resumeiq-feature-icon {
+    font-size: 1.8rem;
+    margin-bottom: 12px;
+}
+
+.resumeiq-feature h3 {
+    color: #FFFFFF;
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 1.1rem;
+    margin-bottom: 8px;
+}
+
+.resumeiq-feature p {
+    color: var(--muted);
+    font-size: 0.88rem;
+    line-height: 1.6;
+}
+
+/* =========================================================
+   ANALYZER SECTIONS
+   ========================================================= */
+
+.resumeiq-section-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 28px;
+    margin-bottom: 20px;
+    animation: resumeiqFadeUp 0.45s ease both;
+}
+
+.resumeiq-section-title {
+    color: #FFFFFF;
+    font-family: "Playfair Display", Georgia, serif;
+    font-size: 1.12rem;
+    font-weight: 600;
+    margin-bottom: 5px;
+}
+
+.resumeiq-section-subtitle {
+    color: var(--dim);
+    font-size: 0.78rem;
+}
+
+/* =========================================================
+   SAVE CARD
+   ========================================================= */
+
+.resumeiq-save-card {
+    margin-top: 28px;
+    padding: 26px;
+
+    background:
+        linear-gradient(
+            135deg,
+            rgba(255, 183, 0, 0.07),
+            rgba(45, 212, 191, 0.03)
+        );
+
+    border: 1px solid rgba(255, 183, 0, 0.20);
+    border-radius: var(--radius);
+    text-align: center;
+}
+
+.resumeiq-save-card h3 {
+    color: #FFFFFF;
+    font-family: "Playfair Display", Georgia, serif;
+}
+
+.resumeiq-save-card p {
+    color: var(--muted);
+}
+
+/* =========================================================
+   SCORE CARD
+   ========================================================= */
+
+.resumeiq-score-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 30px;
+
+    text-align: center;
+
+    box-shadow: var(--shadow-md);
+    animation: resumeiqFadeUp 0.5s ease both;
+}
+
+.resumeiq-score-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    font-weight: 700;
+}
+
+.resumeiq-score {
+    font-family: "DM Mono", monospace;
+    font-size: 4.8rem;
+    line-height: 1;
+    font-weight: 500;
+
+    background: linear-gradient(
+        135deg,
+        var(--gold),
+        var(--gold2)
+    );
+
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+
+    margin: 12px 0;
+}
+
+.resumeiq-score-max {
+    color: var(--dim);
+    font-size: 0.8rem;
+}
+
+.resumeiq-score-interpretation {
+    color: var(--muted);
+    font-size: 0.85rem;
+    margin-top: 10px;
+}
+
+/* =========================================================
+   SCORE FACTORS
+   ========================================================= */
+
+.resumeiq-factor {
+    margin-bottom: 16px;
+}
+
+.resumeiq-factor-head {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 7px;
+}
+
+.resumeiq-factor-name {
+    color: var(--muted);
+    font-size: 0.8rem;
+}
+
+.resumeiq-factor-score {
+    color: var(--gold2);
+    font-family: "DM Mono", monospace;
+    font-size: 0.76rem;
+}
+
+.resumeiq-factor-track {
+    height: 5px;
+    background: rgba(255, 255, 255, 0.06);
+    border-radius: 10px;
+    overflow: hidden;
+}
+
+.resumeiq-factor-fill {
+    height: 100%;
+    background: linear-gradient(
+        90deg,
+        var(--gold),
+        var(--gold2)
+    );
+    border-radius: 10px;
+    transition: width 0.9s ease;
+}
+
+/* =========================================================
+   FOOTER
+   ========================================================= */
+
+.resumeiq-footer {
+    text-align: center;
+    padding: 30px 10px;
+    color: var(--dim);
+    font-size: 0.75rem;
+}
+
+/* =========================================================
+   ANIMATION
+   ========================================================= */
+
+@keyframes resumeiqFadeUp {
+    from {
+        opacity: 0;
+        transform: translateY(16px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* =========================================================
+   RESPONSIVE
+   ========================================================= */
+
+@media (max-width: 768px) {
+    .main .block-container {
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    .resumeiq-hero {
+        padding-top: 40px;
+    }
+
+    .resumeiq-score {
+        font-size: 4rem;
+    }
+}

@@ -14,3 +14,5 @@ __pycache__/
 # ML models
 *.safetensors
 *.pkl
+# Optional on-disk parse cache
+cache/

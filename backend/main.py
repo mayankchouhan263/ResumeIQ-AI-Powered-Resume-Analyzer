@@ -66,7 +66,8 @@ async def root():
         'name':      'ATS Resume Analyzer API',
         'version':   '2.0.0',
         'endpoints': {
-            'POST   /api/v1/analyze-resume': 'Analyze a resume',
+            'POST   /api/v1/analyze-resume': 'Analyze a resume (no login needed)',
+            'POST   /api/v1/save-analysis':  'Save an analysis to history (login required)',
             'GET    /api/v1/history':        'Get user history',
             'DELETE /api/v1/history/:id':    'Delete a history entry',
             'GET    /api/v1/health':         'Health check',

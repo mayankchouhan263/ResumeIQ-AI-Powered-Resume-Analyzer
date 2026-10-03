@@ -2,6 +2,8 @@ from typing import Any, Dict, List, Tuple
 
 import streamlit as st
 
+from frontend.components._helpers import normalize_severity
+
 
 SEVERITY_RANK = {"critical": 0, "high": 1, "medium": 2, "low": 3}
 
@@ -11,7 +13,7 @@ def _collect_action_items(analysis: Dict[str, Any]) -> List[Tuple[str, str, str]
     items: List[Tuple[str, str, str]] = []
 
     for issue in analysis.get("detailed_feedback") or []:
-        level = (issue.get("severity_level") or "low").lower()
+        level = normalize_severity(issue.get("severity_level"))
         title = issue.get("issue_title", "")
         for action in issue.get("action_items") or []:
             items.append((level, title, action))

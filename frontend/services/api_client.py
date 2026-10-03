@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import requests
 import streamlit as st
@@ -14,7 +14,10 @@ def _backend_url() -> str:
         return DEFAULT_BACKEND_URL
 
 
-def _auth_headers(access_token: str) -> Dict[str, str]:
+def _auth_headers(access_token: Optional[str]) -> Dict[str, str]:
+    # No token -> no header (analysis and PDF export work without login).
+    if not access_token:
+        return {}
     return {"Authorization": f"Bearer {access_token}"}
 
 
@@ -26,7 +29,7 @@ def health_check() -> Dict[str, Any]:
 
 def analyze_resume(
     resume_file,
-    access_token: str,
+    access_token: Optional[str] = None,
     job_description: str = "",
 ) -> Dict[str, Any]:
     files = {
@@ -39,6 +42,18 @@ def analyze_resume(
         data=data,
         headers=_auth_headers(access_token),
         timeout=180,
+    )
+    response.raise_for_status()
+    return response.json()
+
+
+def save_analysis(filename: str, analysis: Dict[str, Any], access_token: str) -> Dict[str, Any]:
+    """Save an already-computed analysis to the signed-in user's history."""
+    response = requests.post(
+        f"{_backend_url()}/api/v1/save-analysis",
+        json={"filename": filename, "analysis": analysis},
+        headers=_auth_headers(access_token),
+        timeout=30,
     )
     response.raise_for_status()
     return response.json()
@@ -63,7 +78,7 @@ def delete_history_entry(analysis_id: str, access_token: str) -> None:
     response.raise_for_status()
 
 
-def generate_pdf(analysis_data: Dict[str, Any], access_token: str) -> bytes:
+def generate_pdf(analysis_data: Dict[str, Any], access_token: Optional[str] = None) -> bytes:
     response = requests.post(
         f"{_backend_url()}/api/v1/generate-pdf",
         json=analysis_data,

@@ -2,7 +2,7 @@ from typing import Any, Dict, List
 
 import streamlit as st
 
-from frontend.components._helpers import get_severity_style
+from frontend.components._helpers import get_severity_style, normalize_severity
 
 
 SEVERITY_ORDER = ["critical", "high", "medium", "low"]
@@ -11,8 +11,10 @@ SEVERITY_ORDER = ["critical", "high", "medium", "low"]
 def _group_by_severity(issues: List[Dict[str, Any]]) -> Dict[str, List[Dict[str, Any]]]:
     grouped: Dict[str, List[Dict[str, Any]]] = {level: [] for level in SEVERITY_ORDER}
     for issue in issues:
-        level = (issue.get("severity_level") or "low").lower()
-        grouped.setdefault(level, []).append(issue)
+        level = normalize_severity(issue.get("severity_level"))
+        if level not in grouped:        # unknown label: never drop the issue, show it as low
+            level = "low"
+        grouped[level].append(issue)
     return grouped
 
 

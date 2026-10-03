@@ -3,7 +3,7 @@ from typing import Optional
 import requests
 import streamlit as st
 
-from frontend.services import api_client
+from frontend.services import api_client, supabase_client
 from frontend.components.dashboard import display_results_dashboard
 
 
@@ -65,6 +65,20 @@ def _summary_text(analysis: dict) -> str:
 
 def _render_upload_area(analysis_mode: str):
     """Two-column upload widgets. Returns (resume_file, jd_file, jd_text)."""
+    st.markdown("""
+    <div class="resumeiq-section-card">
+
+        <div class="resumeiq-section-title">
+            📄 Resume Analysis
+        </div>
+
+        <div class="resumeiq-section-subtitle">
+            Upload your resume and optionally compare it with a job description.
+        </div>
+
+    </div>
+    """, unsafe_allow_html=True)
+
     left, right = st.columns(2)
 
     with left:
@@ -125,7 +139,7 @@ def _render_export_buttons(analysis: dict) -> None:
                 with st.spinner("Generating PDF on backend..."):
                     pdf_bytes = api_client.generate_pdf(
                         analysis,
-                        access_token=st.session_state["access_token"],
+                        access_token=st.session_state.get("access_token"),
                     )
                 st.session_state["scorer_pdf_bytes"] = pdf_bytes
             except requests.RequestException as exc:
@@ -152,10 +166,131 @@ def _render_export_buttons(analysis: dict) -> None:
         )
 
 
-def render() -> None:
-    st.title("🎯 ATS Resume Scorer")
-    st.markdown("Upload your resume — and optionally a job description — for a comprehensive analysis.")
+def _store_session(result: dict) -> None:
+    st.session_state.access_token  = result["access_token"]
+    st.session_state.refresh_token = result["refresh_token"]
+    st.session_state.user_id       = result["user_id"]
+    st.session_state.user_email    = result["email"]
 
+
+def _render_inline_auth() -> None:
+    """Sign in / sign up form shown only after the user clicks 'Save to History'."""
+    st.info("🔐 Sign in or create a free account to save this analysis to your history.")
+
+    if st.session_state.get("save_auth_error"):
+        st.error(st.session_state.pop("save_auth_error"))
+    if st.session_state.get("save_auth_info"):
+        st.info(st.session_state.pop("save_auth_info"))
+
+    tab_in, tab_up = st.tabs(["Sign in", "Sign up"])
+
+    with tab_in:
+        with st.form("save_signin_form", clear_on_submit=False):
+            email = st.text_input("Email", key="save_signin_email")
+            password = st.text_input("Password", type="password", key="save_signin_pw")
+            submitted = st.form_submit_button("Sign in & save", use_container_width=True)
+        if submitted:
+            result = supabase_client.sign_in_with_password(email, password)
+            if "error" in result:
+                st.session_state["save_auth_error"] = result["error"]
+            else:
+                _store_session(result)
+            st.rerun()
+
+    with tab_up:
+        with st.form("save_signup_form", clear_on_submit=False):
+            email_up = st.text_input("Email", key="save_signup_email")
+            password_up = st.text_input("Password (min 6 chars)", type="password", key="save_signup_pw")
+            submitted_up = st.form_submit_button("Create account & save", use_container_width=True)
+        if submitted_up:
+            result = supabase_client.sign_up_with_password(email_up, password_up)
+            if "error" in result:
+                st.session_state["save_auth_error"] = result["error"]
+            elif result.get("pending_confirmation"):
+                st.session_state["save_auth_info"] = (
+                    f"Confirmation email sent to {result['email']}. "
+                    "Confirm it, then sign in here and your analysis will be saved."
+                )
+            else:
+                _store_session(result)
+            st.rerun()
+
+    st.caption(
+        "Tip: use email sign-in here. 'Continue with Google' reloads the page, "
+        "so you would have to run the analysis again."
+    )
+
+
+def _save_to_history(analysis: dict) -> None:
+    """POST the current analysis to the backend. Clears the 'pending' flag either way."""
+    st.session_state["scorer_save_pending"] = False
+    filename = st.session_state.get("scorer_filename", "resume")
+    try:
+        with st.spinner("Saving to your history..."):
+            api_client.save_analysis(
+                filename=filename,
+                analysis=analysis,
+                access_token=st.session_state["access_token"],
+            )
+        st.session_state["scorer_saved"] = True
+    except requests.HTTPError as exc:
+        if exc.response is not None and exc.response.status_code == 401:
+            # Token expired / invalid -> force a fresh sign-in, then retry the save.
+            for k in ("access_token", "refresh_token", "user_id", "user_email"):
+                st.session_state[k] = None
+            st.session_state["scorer_save_pending"] = True
+            st.session_state["save_auth_error"] = "Your session expired — please sign in again."
+            st.rerun()
+        _show_backend_error(exc)
+    except requests.RequestException as exc:
+        _show_backend_error(exc)
+
+
+def _render_save_section(analysis: dict) -> None:
+    """Optional 'Save to History' step. Login is requested only if the user clicks Save."""
+    st.markdown("---")
+    st.markdown("### 💾 Save to History")
+
+    if st.session_state.get("scorer_saved"):
+        st.success("✅ Saved! Find it under **History** in the sidebar.")
+        return
+
+    # Signed in and a save was requested (just logged in, or clicked Save) -> do it now.
+    if st.session_state.get("access_token") and st.session_state.get("scorer_save_pending"):
+        _save_to_history(analysis)
+        if st.session_state.get("scorer_saved"):
+            st.success("✅ Saved! Find it under **History** in the sidebar.")
+            return
+
+    st.caption("Want to keep this result? Save it to your account to revisit it later. Totally optional.")
+    if st.button("💾 Save to History", use_container_width=True, key="save_history_btn"):
+        st.session_state["scorer_save_pending"] = True
+        if st.session_state.get("access_token"):
+            st.rerun()          # re-enter this function; the block above performs the save
+
+    if st.session_state.get("scorer_save_pending") and not st.session_state.get("access_token"):
+        _render_inline_auth()
+
+
+def render() -> None:
+    st.markdown("""
+        <div class="resumeiq-hero" style="padding-top:30px;padding-bottom:25px;">
+            <div class="resumeiq-badge">
+                ✦ RESUME ANALYZER
+            </div>
+
+            <h1>
+                Optimize your
+                <span>resume.</span>
+            </h1>
+
+            <p>
+                Upload your resume and optionally add a job description
+                for a detailed AI-powered ATS analysis.
+            </p>
+        </div>
+        """, unsafe_allow_html=True)
+            
     with st.sidebar:
         st.markdown("---")
         st.markdown("## 📊 Analysis Options")
@@ -185,10 +320,8 @@ def render() -> None:
             display_results_dashboard(st.session_state["scorer_analysis"])
         return
 
+    # Login is optional: the token is only sent if the user happens to be signed in.
     access_token = st.session_state.get("access_token")
-    if not access_token:
-        st.warning("⚠️ Sign in from the sidebar to analyze a resume.")
-        return
 
     _, mid, _ = st.columns([1, 2, 1])
     with mid:
@@ -199,11 +332,14 @@ def render() -> None:
         if st.session_state.get("scorer_analysis"):
             display_results_dashboard(st.session_state["scorer_analysis"])
             _render_export_buttons(st.session_state["scorer_analysis"])
+            _render_save_section(st.session_state["scorer_analysis"])
         return
 
     # Fresh analysis — drop any cached PDF/result.
     st.session_state.pop("scorer_pdf_bytes", None)
     st.session_state.pop("scorer_analysis", None)
+    st.session_state["scorer_saved"] = False
+    st.session_state["scorer_save_pending"] = False
 
     job_description = _read_jd(jd_file, jd_text) if analysis_mode == "Job Description Comparison" else ""
 
@@ -219,6 +355,8 @@ def render() -> None:
         return
 
     st.session_state["scorer_analysis"] = analysis
+    st.session_state["scorer_filename"] = resume_file.name
     st.success("✅ Analysis complete!")
     display_results_dashboard(analysis)
     _render_export_buttons(analysis)
+    _render_save_section(analysis)

@@ -2,9 +2,16 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.concurrency import run_in_threadpool
 
 from backend.api.auth import get_current_user
-from backend.models.schemas import AnalysisResponse, ComponentScores, JDComparison, SkillValidationDetails
+from backend.models.schemas import (
+    AnalysisResponse,
+    ComponentScores,
+    JDComparison,
+    SaveAnalysisRequest,
+    SkillValidationDetails,
+)
 from backend.utils.file_utils import (
     get_default_grammar_results,
     get_default_location_results,
@@ -25,7 +32,6 @@ async def analyze_resume(
     request: Request,
     resume: UploadFile = File(..., description='Resume file — PDF or DOCX, max 5 MB'),
     job_description: str = Form('', description='Job description text (optional)'),
-    user_id: str = Depends(get_current_user),
 ):
     warnings: List[str] = []
 
@@ -94,6 +100,11 @@ async def analyze_resume(
         validation_pct  = svd_raw.get('validation_pct', 0.0),
     )
 
+    critical_issues = [
+        fb.issue_title for fb in detailed_fb
+        if str(getattr(fb, 'severity_level', '')).lower() == 'high'
+    ]
+
     response = AnalysisResponse(
         ATS_score=result['ats_score'],
         component_scores=ComponentScores(**result['component_scores']),
@@ -109,17 +120,32 @@ async def analyze_resume(
         matched_keywords=result.get('matched_keywords', []),
         skills=list(result.get('skills', [])[:20]),
         jd_comparison=jd_comparison_result,
-        interpretation=result.get('interpretation', '')
+        interpretation=result.get('interpretation', ''),
+        strengths=result.get('strengths', []),
+        suggestions=[fb.how_to_fix for fb in detailed_fb if getattr(fb, 'how_to_fix', '')],
+        critical_issues=critical_issues,
     )
 
 
-    try:
-        from backend.database.supabase_db import save_analysis
-        await save_analysis(user_id, filename, result)
-    except Exception as exc:
-        logger.warning(f'History save failed (non-blocking): {exc}')
-
     return response
+
+
+@router.post('/save-analysis')
+async def save_analysis_endpoint(
+    payload: SaveAnalysisRequest,
+    user_id: str = Depends(get_current_user),
+):
+    """Save an already-computed analysis to the signed-in user's history (login required)."""
+    from backend.database.supabase_db import SupabaseError, save_analysis
+
+    try:
+        saved_id = await save_analysis(user_id, payload.filename, payload.analysis.model_dump())
+    except SupabaseError as exc:
+        raise HTTPException(status_code=500, detail=f'Could not save to history: {exc}')
+    if saved_id is None:
+        raise HTTPException(status_code=500, detail='Could not save to history: Supabase returned no row id.')
+    return {'status': 'saved', 'id': saved_id}
+
 
 @router.get('/health')
 async def health_check(request: Request):
@@ -163,15 +189,14 @@ async def delete_history_entry(
 @router.post('/generate-pdf')
 async def generate_pdf(
     data: AnalysisResponse,
-    user_id: str = Depends(get_current_user),
 ):
-    from backend.services.report_generator import generate_html_reports
-    from backend.services.pdf_export import generate_combined_pdf
     from fastapi.responses import Response
 
     try:
+        from backend.services.report_generator import generate_html_reports
+        from backend.services.pdf_export import generate_combined_pdf
         html_docs = generate_html_reports(data.model_dump())
-        pdf_bytes = generate_combined_pdf(html_docs)
+        pdf_bytes = await run_in_threadpool(generate_combined_pdf, html_docs)
 
         return Response(
             content=pdf_bytes,
@@ -191,8 +216,6 @@ async def generate_history_pdf(
     user_id: str = Depends(get_current_user),
 ):
     from backend.database.supabase_db import get_user_history
-    from backend.services.report_generator import generate_html_reports
-    from backend.services.pdf_export import generate_combined_pdf
     from fastapi.responses import Response
 
     history = await get_user_history(user_id)
@@ -202,8 +225,10 @@ async def generate_history_pdf(
         raise HTTPException(status_code=404, detail="Analysis not found")
 
     try:
+        from backend.services.report_generator import generate_html_reports
+        from backend.services.pdf_export import generate_combined_pdf
         html_docs = generate_html_reports(analysis_data)
-        pdf_bytes = generate_combined_pdf(html_docs)
+        pdf_bytes = await run_in_threadpool(generate_combined_pdf, html_docs)
 
         return Response(
             content=pdf_bytes,
