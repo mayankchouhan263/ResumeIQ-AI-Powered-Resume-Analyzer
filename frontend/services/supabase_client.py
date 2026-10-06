@@ -1,4 +1,5 @@
 import os
+import time
 import logging
 from pathlib import Path
 from typing import Any, Dict
@@ -50,6 +51,24 @@ def get_client() -> Client | None:
     return create_client(SUPABASE_URL, SUPABASE_ANON_KEY)
 
 
+@st.cache_resource
+def _pending_store() -> Dict[str, Dict[str, Any]]:
+    """Server-side parking spot for an analysis while the user is away at Google.
+
+    Google sign-in leaves the page and comes back as a brand-new Streamlit session, which would
+    lose the analysis. We park it here, keyed by the PKCE code_verifier, and give it back in
+    exchange_code_for_session(). Entries expire after 15 minutes.
+    """
+    return {}
+
+
+def _read_verifier(client) -> str:
+    try:
+        return client.auth._storage.get_item(f'{client.auth._storage_key}-code-verifier') or ''
+    except Exception:
+        return ''
+
+
 def _session_dict(session, user) -> Dict[str, Any]:
     return {
         'access_token':  session.access_token,
@@ -91,15 +110,25 @@ def sign_up_with_password(email: str, password: str) -> Dict[str, Any]:
         return {'error': _humanize(exc)}
 
 
-def google_oauth_url() -> Dict[str, Any]:
+def google_oauth_url(pending: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """Build the Google sign-in URL. `pending` (e.g. {'analysis':..., 'filename':...}) is parked
+    server-side and handed back by exchange_code_for_session() after the redirect."""
     err = _missing_config()
     if err:
         return {'error': err}
     try:
-        resp = get_client().auth.sign_in_with_oauth({
+        client = get_client()
+        resp = client.auth.sign_in_with_oauth({
             'provider': 'google',
             'options': {'redirect_to': OAUTH_REDIRECT_URL},
         })
+        if pending:
+            store, now = _pending_store(), time.time()
+            for key in [k for k, v in store.items() if now - v['ts'] > 900]:
+                store.pop(key, None)
+            verifier = _read_verifier(client)
+            if verifier:
+                store[verifier] = {**pending, 'ts': now}
         return {'url': resp.url}
     except Exception as exc:
         logger.warning(f'oauth url generation failed: {exc}')
@@ -113,8 +142,7 @@ def exchange_code_for_session(auth_code: str) -> Dict[str, Any]:
         return {'error': err}
     client = get_client()
     try:
-        storage_key = f'{client.auth._storage_key}-code-verifier'
-        code_verifier = client.auth._storage.get_item(storage_key) or ''
+        code_verifier = _read_verifier(client)
         resp = client.auth.exchange_code_for_session({
             'auth_code': auth_code,
             'code_verifier': code_verifier,
@@ -122,7 +150,9 @@ def exchange_code_for_session(auth_code: str) -> Dict[str, Any]:
         })
         if not resp.session or not resp.user:
             return {'error': 'OAuth exchange returned no session'}
-        return _session_dict(resp.session, resp.user)
+        out = _session_dict(resp.session, resp.user)
+        out['pending'] = _pending_store().pop(code_verifier, None)   # analysis parked before redirect
+        return out
     except Exception as exc:
         logger.warning(f'exchange_code_for_session failed: {exc}')
         return {'error': _humanize(exc)}

@@ -65,6 +65,16 @@ if (
         st.session_state.refresh_token = result["refresh_token"]
         st.session_state.user_id = result["user_id"]
         st.session_state.user_email = result["email"]
+
+        # Go back to the page the user started from; if it was "Save to History",
+        # restore the analysis so scorer.py can save it.
+        pending = result.get("pending") or {}
+        st.session_state.current_view = pending.get("view", "landing")
+        if pending.get("analysis"):
+            st.session_state.scorer_analysis = pending["analysis"]
+            st.session_state.scorer_filename = pending.get("filename") or "resume"
+            st.session_state.scorer_saved = False
+            st.session_state.scorer_save_pending = True
         st.rerun()
 
 

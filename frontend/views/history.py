@@ -1,6 +1,7 @@
 import requests
 import streamlit as st
 
+from frontend.components.auth_card import render_auth_card
 from frontend.services import api_client
 
 
@@ -28,20 +29,8 @@ def render() -> None:
     access_token = st.session_state.get("access_token")
 
     if not access_token:
-        st.markdown(
-            """
-            <div class="resumeiq-placeholder">
-                <div class="resumeiq-placeholder-icon">🔐</div>
-                <h3>Sign in to view your history</h3>
-                <p>
-                    Resume analysis itself does not require an account.
-                    To create history, analyze a resume and choose
-                    <strong>Save to History</strong> at the end.
-                </p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
+        render_auth_card("history")
+        st.caption("No account is needed to analyze a resume.")
 
         if st.button("🎯 Go to ATS Scorer", use_container_width=True, type="primary"):
             st.session_state.current_view = "scorer"

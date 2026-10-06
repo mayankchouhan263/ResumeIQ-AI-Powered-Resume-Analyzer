@@ -4,8 +4,9 @@ from typing import Optional
 import requests
 import streamlit as st
 
+from frontend.components.auth_card import render_auth_card
 from frontend.components.dashboard import display_results_dashboard
-from frontend.services import api_client, supabase_client
+from frontend.services import api_client
 
 
 def _read_jd(jd_file, jd_text: str) -> str:
@@ -40,7 +41,7 @@ def _show_backend_error(exc: Exception) -> None:
             detail = exc.response.json().get("detail", exc.response.text)
         except ValueError:
             detail = exc.response.text
-        st.error(detail)
+        st.error(f"Backend returned {exc.response.status_code}: {detail}")
     else:
         st.error(f"Unexpected error: {exc}")
 
@@ -179,86 +180,6 @@ def _render_export_buttons(analysis: dict) -> None:
         )
 
 
-def _store_session(result: dict) -> None:
-    st.session_state.access_token = result["access_token"]
-    st.session_state.refresh_token = result["refresh_token"]
-    st.session_state.user_id = result["user_id"]
-    st.session_state.user_email = result["email"]
-
-
-def _render_inline_auth() -> None:
-    """Show authentication only after the user requests Save to History."""
-    st.markdown(
-        dedent(
-            """
-            <div class="resumeiq-auth-card">
-                <div class="resumeiq-save-kicker">🔐 SAVE TO HISTORY</div>
-                <h3>Sign in to keep this analysis</h3>
-                <p>
-                    Your analysis is already complete. Sign in or create a free
-                    account and we'll save this result to your personal history.
-                </p>
-            </div>
-            """
-        ),
-        unsafe_allow_html=True,
-    )
-
-    if st.session_state.get("save_auth_error"):
-        st.error(st.session_state.pop("save_auth_error"))
-    if st.session_state.get("save_auth_info"):
-        st.info(st.session_state.pop("save_auth_info"))
-
-    tab_in, tab_up = st.tabs(["Sign in", "Sign up"])
-
-    with tab_in:
-        with st.form("save_signin_form", clear_on_submit=False):
-            email = st.text_input("Email", key="save_signin_email")
-            password = st.text_input(
-                "Password",
-                type="password",
-                key="save_signin_pw",
-            )
-            submitted = st.form_submit_button(
-                "Sign in & save",
-                use_container_width=True,
-            )
-
-        if submitted:
-            result = supabase_client.sign_in_with_password(email, password)
-            if "error" in result:
-                st.session_state["save_auth_error"] = result["error"]
-            else:
-                _store_session(result)
-            st.rerun()
-
-    with tab_up:
-        with st.form("save_signup_form", clear_on_submit=False):
-            email_up = st.text_input("Email", key="save_signup_email")
-            password_up = st.text_input(
-                "Password (min 6 chars)",
-                type="password",
-                key="save_signup_pw",
-            )
-            submitted_up = st.form_submit_button(
-                "Create account & save",
-                use_container_width=True,
-            )
-
-        if submitted_up:
-            result = supabase_client.sign_up_with_password(email_up, password_up)
-            if "error" in result:
-                st.session_state["save_auth_error"] = result["error"]
-            elif result.get("pending_confirmation"):
-                st.session_state["save_auth_info"] = (
-                    f"Confirmation email sent to {result['email']}. "
-                    "Confirm it, then sign in here and your analysis will be saved."
-                )
-            else:
-                _store_session(result)
-            st.rerun()
-
-
 def _save_to_history(analysis: dict) -> None:
     """Save the current analysis for the authenticated user."""
     st.session_state["scorer_save_pending"] = False
@@ -331,7 +252,7 @@ def _render_save_section(analysis: dict) -> None:
         st.session_state.get("scorer_save_pending")
         and not st.session_state.get("access_token")
     ):
-        _render_inline_auth()
+        render_auth_card("save")
 
     if (
         st.session_state.get("scorer_save_pending")
