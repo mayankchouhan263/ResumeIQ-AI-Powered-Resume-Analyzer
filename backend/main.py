@@ -1,3 +1,7 @@
+import os, sys
+if sys.platform == "win32":          # local Windows dev only
+    os.environ.setdefault("KMP_DUPLICATE_LIB_OK", "TRUE")
+
 import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
@@ -22,16 +26,17 @@ async def lifespan(app:FastAPI):
     logger.info(f'Loading spaCy NLP model: {SPACY_MODEL_PRIMARY}')
     import spacy
     try:
-        app.state.nlp = spacy.load(SPACY_MODEL_PRIMARY)
+        # lemmatizer is never used here; skipping it saves a little more memory
+        app.state.nlp = spacy.load(SPACY_MODEL_PRIMARY, disable=['lemmatizer'])
         logger.info(f'Loaded {SPACY_MODEL_PRIMARY}')
     except OSError:
         logger.warning(f'{SPACY_MODEL_PRIMARY} not found — falling back to {SPACY_MODEL_SECONDARY}')
-        app.state.nlp = spacy.load(SPACY_MODEL_SECONDARY)
+        app.state.nlp = spacy.load(SPACY_MODEL_SECONDARY, disable=['lemmatizer'])
         logger.info(f'Loaded {SPACY_MODEL_SECONDARY} (fallback)')
 
-    logger.info(f'Loading SentenceTransformer: {SENTENCE_TRANSFORMER_MODEL}')
-    from sentence_transformers import SentenceTransformer
-    app.state.embedder = SentenceTransformer(SENTENCE_TRANSFORMER_MODEL)
+    logger.info(f'Loading ONNX embedder: {SENTENCE_TRANSFORMER_MODEL}')
+    from backend.services.embedder import OnnxEmbedder
+    app.state.embedder = OnnxEmbedder(SENTENCE_TRANSFORMER_MODEL)
     logger.info(f'Loaded {SENTENCE_TRANSFORMER_MODEL}')
 
     logger.info('All models loaded. API is ready to serve requests.')

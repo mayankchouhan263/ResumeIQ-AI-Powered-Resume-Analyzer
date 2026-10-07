@@ -2,12 +2,13 @@
 
 Two engines, tried in this order (set PDF_ENGINE=playwright|weasyprint to force one):
 
-  1. Playwright + Chromium  - best fidelity (flexbox etc.), no GTK/Pango needed, so it
-                              works on Windows with just:
+  1. WeasyPrint             - light on memory (fits a 512 MB server). Needs Pango on Linux
+                              (apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0)
+                              and the MSYS2/GTK libraries on Windows.
+  2. Playwright + Chromium  - best fidelity, but a headless browser needs several hundred MB of
+                              RAM, so it is only a fallback (and is not installed on the server):
                                   pip install playwright
                                   playwright install chromium
-  2. WeasyPrint             - pure rendering library, but on Windows it needs the
-                              MSYS2/GTK libraries. Works out of the box on most Linux hosts.
 """
 import asyncio
 import io
@@ -104,8 +105,8 @@ def generate_combined_pdf(html_docs: Dict[str, str]) -> bytes:
     engines = {
         'playwright':  [('playwright', _render_with_playwright)],
         'weasyprint':  [('weasyprint', _render_with_weasyprint)],
-    }.get(PDF_ENGINE, [('playwright', _render_with_playwright),
-                       ('weasyprint', _render_with_weasyprint)])
+    }.get(PDF_ENGINE, [('weasyprint', _render_with_weasyprint),
+                       ('playwright', _render_with_playwright)])
 
     errors: List[str] = []
     for name, render in engines:
@@ -118,7 +119,7 @@ def generate_combined_pdf(html_docs: Dict[str, str]) -> bytes:
             errors.append(f'{name}: {str(exc).splitlines()[0] if str(exc) else type(exc).__name__}')
 
     raise RuntimeError(
-        'No PDF engine worked. Easiest fix on Windows: run '
-        '"pip install playwright" then "playwright install chromium", and restart the backend. '
+        'No PDF engine worked. On a server install Pango (libpango-1.0-0, libpangoft2-1.0-0, libharfbuzz-subset0) '
+        'for WeasyPrint; on Windows run "pip install playwright" then "playwright install chromium" and restart. '
         'Details - ' + ' | '.join(errors)
     )

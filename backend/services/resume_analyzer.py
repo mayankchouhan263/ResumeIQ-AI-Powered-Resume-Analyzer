@@ -1,27 +1,34 @@
 import spacy
-from sentence_transformers import SentenceTransformer
+from backend.services.embedder import OnnxEmbedder
 from typing import Dict, List, Optional
 from backend.models.schemas import IssueDetail
 from backend.services.groq_parser import parse_resume, parse_job_description, dedupe_terms
 from backend.services.jd_matcher import compare_resume_with_jd
 from backend.services.feedback_engine import analyze_issues, generate_issues_summary
-from backend.services.ats_scorer import calculate_overall_score, validate_skills_with_projects
+from backend.services.ats_scorer import (
+    calculate_overall_score, validate_skills_with_projects,
+    ground_parsed_resume, detect_location_info, generic_phrase_count, _substantive_project,
+)
 
 
 def analyze_full_resume(
     resume_text: str,
     nlp: spacy.Language,
-    embedder: SentenceTransformer,
+    embedder: OnnxEmbedder,
     job_description: Optional[str] = None,
 ) -> Dict:
     import logging
     logger = logging.getLogger('ats_resume_scorer')
     parsed_resume = parse_resume(resume_text)
+    # Keep only what the resume text actually supports (the LLM can invent skills/jobs).
+    parsed_resume = ground_parsed_resume(parsed_resume, resume_text)
+    logger.info(f"Grounding dropped: {parsed_resume.get('_grounding_dropped')}")
     logger.info(f"Groq parsed summary: {parsed_resume.get('professional_summary', '')[:100]!r}")
     logger.info(f"Groq parsed skills count: {len(parsed_resume.get('skills', []))}")
     logger.info(f"Groq parsed experience count: {len(parsed_resume.get('experience', []))}")
 
-    skills          = parsed_resume.get('skills', [])
+    skills          = parsed_resume.get('skills', [])            # shown to the user (includes soft skills)
+    technical_skills = parsed_resume.get('technical_skills', skills)  # what the score counts
     projects        = parsed_resume.get('projects', [])
     keywords        = parsed_resume.get('keywords', [])
     action_verbs    = parsed_resume.get('action_verbs', [])
@@ -52,10 +59,10 @@ def analyze_full_resume(
     jd_keywords = None
     if job_description and job_description.strip():
         parsed_jd = parse_job_description(job_description.strip())
-        jd_keywords = dedupe_terms(
-            parsed_jd.get('keywords', []) +
-            parsed_jd.get('required_skills', []) +
-            parsed_jd.get('preferred_skills', [])
+        jd_required  = parsed_jd.get('required_skills', [])
+        jd_preferred = parsed_jd.get('preferred_skills', [])
+        jd_keywords = dedupe_terms(                      # required skills first, so they lead the lists
+            jd_required + jd_preferred + parsed_jd.get('keywords', [])
         )
         jd_comparison_result = compare_resume_with_jd(
             resume_text=resume_text,
@@ -65,18 +72,24 @@ def analyze_full_resume(
             jd_keywords=jd_keywords,
             embedder=embedder,
             nlp=nlp,
+            jd_required_skills=jd_required,
+            jd_preferred_skills=jd_preferred,
         )
 
     from backend.utils.file_utils import (
         get_default_grammar_results, get_default_location_results,
     )
-    grammar_results  = get_default_grammar_results()
-    location_results = get_default_location_results()
+    grammar_results  = get_default_grammar_results()   # no grammar checker wired in yet; scorer rescales
+    try:
+        location_results = detect_location_info(resume_text, nlp)
+    except Exception as exc:
+        logger.warning(f'Location detection failed, skipping: {exc}')
+        location_results = get_default_location_results()
 
     scores = calculate_overall_score(
         text=resume_text,
         parsed_resume=parsed_resume,
-        skills=skills,
+        skills=technical_skills,
         keywords=keywords,
         action_verbs=action_verbs,
         skill_validation_results=skill_validation,
@@ -84,6 +97,18 @@ def analyze_full_resume(
         location_results=location_results,
         jd_keywords=jd_keywords,
         experience_months=experience_months,
+    )
+    logger.info(
+        'SCORE BREAKDOWN overall=%s before_caps=%s components=%s caps=%s penalties=%s bonuses=%s '
+        'skills_kept=%d validated=%d/%d verbs=%d keywords=%d experience=%d dropped_by_grounding=%s',
+        scores['overall_score'], scores.get('score_before_caps'),
+        {k: scores[k] for k in ('formatting_score', 'keywords_score', 'content_score',
+                                'skill_validation_score', 'ats_compatibility_score')},
+        scores.get('caps_applied'), scores.get('penalties'), scores.get('bonuses'),
+        len(technical_skills), len(skill_validation.get('validated_skills', [])),
+        len(skill_validation.get('validated_skills', [])) + len(skill_validation.get('unvalidated_skills', [])),
+        len(action_verbs), len(keywords), len(parsed_resume.get('experience', [])),
+        parsed_resume.get('_grounding_dropped'),
     )
     detailed_feedback = analyze_issues(
         resume_text=resume_text,
@@ -142,6 +167,8 @@ def analyze_full_resume(
         ),
         "strengths": _generate_strengths(parsed_resume, skills, projects, action_verbs, skill_validation, scores),
         "interpretation":    scores.get('overall_interpretation', ''),
+        "score_caps":        scores.get('caps_applied', {}),
+        "score_penalties":   scores.get('penalties', {}),
         "skill_validation_details": skill_validation_details,
         "experience_months": experience_months,
     }
@@ -156,13 +183,14 @@ def _generate_strengths(
 
     if parsed_resume.get('experience'):
         strengths.append("Has a dedicated Experience section")
-    if parsed_resume.get('projects') or len(projects) > 0:
+    if any(_substantive_project(p) for p in projects if isinstance(p, dict)):
         strengths.append("Includes a Projects section showcasing applied skills")
     if parsed_resume.get('education'):
         strengths.append("Education section is present")
     if parsed_resume.get('skills'):
         strengths.append("Clear Skills section with listed technologies")
-    if parsed_resume.get('professional_summary', '').strip():
+    summary = parsed_resume.get('professional_summary', '').strip()
+    if summary and generic_phrase_count(summary) < 2:
         strengths.append("Professional Summary provides a quick overview")
 
     if len(skills) >= 8:

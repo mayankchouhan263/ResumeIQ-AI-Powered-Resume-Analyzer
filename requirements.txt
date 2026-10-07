@@ -4,7 +4,7 @@
 #     pip install -r requirements.txt
 #
 # After installing, download the spaCy model the backend uses at startup:
-#     python -m spacy download en_core_web_md
+#     python -m spacy download en_core_web_sm
 #
 # PDF export prefers Playwright (run `playwright install chromium` once after pip install).
 # WeasyPrint is an optional fallback and needs system libraries on Linux:
@@ -20,7 +20,7 @@ python-dotenv>=1.0
 
 # ── Backend: NLP / ML ──
 spacy>=3.7,<4.0
-sentence-transformers>=2.5
+fastembed>=0.3               # ONNX embeddings (all-MiniLM-L6-v2) - replaces sentence-transformers/PyTorch
 numpy>=1.26
 rapidfuzz>=3.6
 

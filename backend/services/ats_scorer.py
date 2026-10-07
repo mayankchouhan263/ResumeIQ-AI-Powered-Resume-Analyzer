@@ -1,12 +1,12 @@
 import re
 import spacy
 import numpy as np
-from sentence_transformers import SentenceTransformer
+from backend.services.embedder import OnnxEmbedder
 from typing import Dict, List, Optional, Tuple
 
 from backend.utils.file_utils import log_warning
 from backend.core.config import SENTENCE_TRANSFORMER_MODEL
-from backend.utils.matching import fuzzy_match_keywords
+from backend.utils.matching import fuzzy_match_keywords, match_terms_against_resume
 
 ZIP_CODE_PATTERN = r'\b\d{5}(?:-\d{4})?\b'
 
@@ -50,7 +50,7 @@ def detect_location_info(text: str, nlp: spacy.Language) -> Dict:
     elif len(locations) > 3:
         privacy_risk, penalty = 'medium', 3.0
     elif locations:
-        privacy_risk, penalty = 'low', 2.0
+        privacy_risk, penalty = 'low', 0.0   # a plain city/college location is fine
     else:
         privacy_risk, penalty = 'none', 0.0
 
@@ -72,7 +72,7 @@ def detect_location_info(text: str, nlp: spacy.Language) -> Dict:
         'penalty_applied':    penalty,
     }
 
-def _calculate_semantic_similarity(skill: str, text: str, embedder: SentenceTransformer) -> float:
+def _calculate_semantic_similarity(skill: str, text: str, embedder: OnnxEmbedder) -> float:
     #similarity = (A · B) / (|A| × |B|)
     if not skill or not text:
         return 0.0
@@ -89,7 +89,7 @@ def _calculate_semantic_similarity(skill: str, text: str, embedder: SentenceTran
         log_warning(f"Similarity error for '{skill}': {e}", context='ats_scorer')
         return 0.0
 
-def _skill_matches(skill: str, text: str, embedder: SentenceTransformer, threshold: float) -> Tuple[bool, float]:
+def _skill_matches(skill: str, text: str, embedder: OnnxEmbedder, threshold: float) -> Tuple[bool, float]:
 
     #fast, o(n) directly check if skill is a substring of the text (case-insensitive)
     if skill.lower() in text.lower():
@@ -291,11 +291,26 @@ def _project_text(p: Dict) -> str:
     return f"{p.get('title', '')}. {p.get('description', '')}. {tech_txt}"
 
 
+# Share of listed skills that are backed by evidence -> share of the 15 validation points awarded.
+# Concave on purpose: a long skills list with half of it proven is still mostly rewarded, but the
+# score only reaches 100% when everything is proven. Linear interpolation between these points.
+_VALIDATION_CURVE = [(0.00, 0.00), (0.25, 0.45), (0.50, 0.75), (0.75, 0.90), (1.00, 1.00)]
+_MIN_PROVEN_SKILLS = 5     # fewer proven skills than this scales the score down (anti-gaming)
+
+
+def _validation_fraction(pct: float) -> float:
+    pct = max(0.0, min(1.0, pct))
+    for (x0, y0), (x1, y1) in zip(_VALIDATION_CURVE, _VALIDATION_CURVE[1:]):
+        if pct <= x1:
+            return y0 + (y1 - y0) * (pct - x0) / (x1 - x0)
+    return 1.0
+
+
 def validate_skills_with_projects(
     skills: List[str],
     projects: List[Dict],
     experience_entries: List[Dict],
-    embedder: Optional[SentenceTransformer] = None,
+    embedder: Optional[OnnxEmbedder] = None,
     threshold: float = 0.5,
     resume_text: str = '',
     certifications: Optional[List] = None,
@@ -313,7 +328,10 @@ def validate_skills_with_projects(
                 **{v['skill']: v['projects'] for v in validated},
                 **{u: [] for u in unvalidated},
             },
-            'validation_score':      pct * 15.0,
+            # percentage proven -> lenient curve (50% proven = 75% of the points), then scaled down
+            # if fewer than _MIN_PROVEN_SKILLS skills are proven, so 2-of-2 can't look like a strong profile.
+            'validation_score':      15.0 * _validation_fraction(pct)
+                                     * min(1.0, len(validated) / float(_MIN_PROVEN_SKILLS)),
         }
 
     if not skills:
@@ -438,6 +456,232 @@ def validate_skills_with_projects(
     return _result(validated, unvalidated, soft)
 
 
+# -- Grounding & content-depth helpers ---------------------------------------
+# The LLM parser can return skills / keywords / jobs that are not in the resume, and generic
+# words ("technology", "hardworking") that look like skills. Everything the score counts is
+# first checked against the real resume text.
+
+_VAGUE_TERMS = {
+    'technology', 'technologies', 'tech', 'computer', 'computers', 'computing', 'it', 'internet',
+    'software', 'hardware', 'student', 'students', 'project', 'projects', 'education', 'degree',
+    "bachelor's degree", 'bachelors degree', 'bachelor', 'experience', 'resume', 'job', 'company',
+    'position', 'learning', 'growth', 'goal', 'hardworking', 'hard working', 'hard-working',
+    'sincere', 'dedicated', 'motivated', 'passionate', 'good job', 'reputed company',
+}
+
+_WEAK_VERBS = {
+    'made', 'make', 'worked', 'work', 'did', 'do', 'done', 'helped', 'help', 'handled', 'assisted',
+    'involved', 'completed', 'complete', 'got', 'get', 'used', 'use', 'tried', 'took', 'responsible',
+    'participated', 'was', 'were',
+}
+
+_GENERIC_RE = re.compile(
+    r"\b(?:hard[\s-]?working|sincere|reputed company|good (?:job|position|opportunity)|"
+    r"quick learner|fast learner|team player|work(?:ing)? with (?:a )?team|learn(?:ing)? new things|"
+    r"looking for (?:a |an )?(?:good|challenging|suitable)|(?:different|various|many|several) things|"
+    r"related to (?:computers?|technology)|results?[\s-]oriented|go[\s-]getter|self[\s-]motivated)\b",
+    re.IGNORECASE,
+)
+
+_ACHIEVEMENT_PATTERNS = [
+    r'(?<![\d.])\d[\d,]*(?:\.\d+)?\s*%',                                   # 83.1%, 40 %
+    r'[$₹€£]\s?\d[\d,.]*\s*(?:[kKmMbB]\b|lakhs?|crores?)?',                 # $5k, ₹2 lakh
+    r'\b\d+(?:\.\d+)?[ ]?[kKmMbB]\b\+?',                                     # 10k, 2M
+    r'\b\d+(?:\.\d+)?[ ]?[x×]\b',                                            # 3x faster
+    r'\b\d[\d,]*\+?[ \t]*(?:[A-Za-z-]+[ \t]+){0,2}(?:users?|customers?|clients?|projects?|hours?|days?|months?|'
+    r'years?|records?|rows|requests?|problems?|questions?|datasets?|images?|models?|apis?|endpoints?|'
+    r'services?|students?|members?|engineers?|developers?|orders?|transactions?|participants?|stars|'
+    r'downloads|commits|repos|repositories|queries|documents|resumes|samples|tests?)\b',   # 975,800 records, 300+ DSA problems
+    r'\b(?:AIR|rank(?:ed)?|top)\b[^\n\d]{0,12}\d[\d,]*',                    # AIR: 18644, top 5
+]
+
+_NON_ACHIEVEMENT_SECTIONS = re.compile(
+    r'^(?:education|academic|skills?|technical skills?|certifications?|licen[cs]es?|courses?|training|'
+    r'languages?|interests?|hobbies|references?)$', re.IGNORECASE)
+_ACADEMIC_LINE_RE = re.compile(
+    r'\b(?:cgpa|gpa|sgpa|cbse|icse|percentage|class\s+(?:x|xii|10|12)|10th|12th|board)\b', re.IGNORECASE)
+_HEADING_RE = re.compile(rf'^\s*({_SECTION_STOP})\s*:?\s*$', re.IGNORECASE)
+
+
+def _achievement_scope(text: str) -> str:
+    """Resume text where achievements can live: drops Education/Skills/Certifications sections and
+    academic-score lines (CGPA, 76.6% in Class XII...) so they don't count as achievements."""
+    keep, skip = [], False
+    for line in (text or '').splitlines():
+        m = _HEADING_RE.match(line)
+        if m:
+            skip = bool(_NON_ACHIEVEMENT_SECTIONS.match(m.group(1).strip()))
+            continue
+        if skip or _ACADEMIC_LINE_RE.search(line):
+            continue
+        keep.append(line)
+    return '\n'.join(keep)
+
+
+_IRREGULAR_VERBS = {'built', 'led', 'ran', 'wrote', 'won', 'drove', 'grew', 'cut', 'sent', 'taught', 'found'}
+_BULLET_START_RE = re.compile(r'^\s*[•●▪◦·\-\*–]\s*(.+)$')
+
+
+def _bullet_verbs(text: str) -> List[str]:
+    """Action verbs that open a bullet or a sentence inside a bullet ("Built...", "; added...").
+    Deterministic, so the verb score doesn't depend on what the LLM chose to list."""
+    out, seen = [], set()
+    for line in (text or '').splitlines():
+        m = _BULLET_START_RE.match(line)
+        if not m:
+            continue
+        for seg in re.split(r'(?<=[.;])\s+', m.group(1)):
+            w = re.match(r"[A-Za-z]+", seg.strip())
+            if not w:
+                continue
+            v = w.group(0).lower()
+            if v in seen or v in _WEAK_VERBS:
+                continue
+            if v in _IRREGULAR_VERBS or (v.endswith('ed') and len(v) >= 5):
+                seen.add(v)
+                out.append(v)
+    return out
+
+
+def generic_phrase_count(text: str) -> int:
+    """Number of distinct filler phrases ("hardworking", "reputed company", ...)."""
+    return len({m.group(0).lower() for m in _GENERIC_RE.finditer(text or '')})
+
+
+def _achievement_count(text: str) -> int:
+    """Distinct measurable results in the achievement-bearing parts of the resume (overlaps merged)."""
+    scope = _achievement_scope(text)
+    spans = sorted(m.span() for p in _ACHIEVEMENT_PATTERNS for m in re.finditer(p, scope, re.IGNORECASE))
+    merged = []
+    for s, e in spans:
+        if merged and s < merged[-1][1]:
+            merged[-1][1] = max(merged[-1][1], e)
+        else:
+            merged.append([s, e])
+    return len(merged)
+
+
+def _norm_term(t) -> str:
+    return re.sub(r'\s+', ' ', str(t).strip().lower())
+
+
+def _appears_in(term: str, text: str) -> bool:
+    if not _norm_term(term):
+        return False
+    return any(_term_regex(v).search(text) for v in _skill_variants(term))
+
+
+def _tokens_in(term: str, text: str) -> bool:
+    """All significant words of `term` (plural-tolerant) occur in the text."""
+    toks = re.findall(r'[a-z0-9+#]{3,}', str(term).lower())
+    low = (text or '').lower()
+    return bool(toks) and all(re.search(r'\b' + re.escape(t.rstrip('s')), low) for t in toks)
+
+
+def _has_experience_heading(text: str) -> bool:
+    for line in (text or '').splitlines():
+        s = line.strip()
+        if not s or s[0] in '•-*◦▪' or s.endswith('.') or len(s.split()) > 5:
+            continue
+        if re.search(r'\b(?:experience|internships?|employment|work history)\b', s, re.IGNORECASE):
+            return True
+    return False
+
+
+def ground_parsed_resume(parsed: Dict, resume_text: str) -> Dict:
+    """Return a copy of the LLM-parsed resume containing only what the text actually supports.
+
+    Drops: terms not present in the resume text, vague/filler terms, weak action verbs, experience
+    entries when the resume has no experience section, and project technologies that aren't in
+    the text. Adds 'technical_skills' (skills minus soft skills)."""
+    import copy
+    p = copy.deepcopy(parsed or {})
+    text = resume_text or ''
+    low = text.lower()
+    dropped: Dict[str, int] = {}
+
+    def _keep(items, key, loose=False):
+        out, seen, n_dropped = [], set(), 0
+        for t in items or []:
+            t = str(t).strip()
+            k = _norm_term(t)
+            if not k or k in seen:
+                continue
+            seen.add(k)
+            if (k in _VAGUE_TERMS or generic_phrase_count(t)
+                    or not (_appears_in(t, text) or (loose and _tokens_in(t, text)))):
+                n_dropped += 1
+                continue
+            out.append(t)
+        dropped[key] = dropped.get(key, 0) + n_dropped
+        return out
+
+    p['skills']       = _keep(p.get('skills'), 'skills')
+    p['keywords']     = _keep(p.get('keywords'), 'keywords', loose=True)
+    llm_verbs = [v for v in _keep(p.get('action_verbs'), 'action_verbs')
+                 if _norm_term(v) not in _WEAK_VERBS]
+    have = {_norm_term(v) for v in llm_verbs}
+    p['action_verbs'] = llm_verbs + [v for v in _bullet_verbs(text) if v not in have]
+    p['technical_skills'] = [s for s in p['skills'] if not _is_soft_skill(s)]
+
+    # Experience: only believable when the resume has an experience/internship heading and the
+    # company or job title really appears in the text.
+    exps = [e for e in (p.get('experience') or []) if isinstance(e, dict)]
+    has_heading = _has_experience_heading(text)
+    kept = []
+    for e in exps:
+        title = (e.get('job_title') or '').strip().lower()
+        comp  = (e.get('company') or '').strip().lower()
+        if has_heading and ((comp and comp in low) or (title and title in low)):
+            kept.append(e)
+    dropped['experience'] = len(exps) - len(kept)
+    p['experience'] = kept
+
+    # Projects: title must appear in the text; technologies must be real, specific terms.
+    projects = []
+    for pr in (p.get('projects') or []):
+        if not isinstance(pr, dict):
+            continue
+        title = (pr.get('title') or '').strip().lower()
+        if title and title not in low:
+            dropped['projects'] = dropped.get('projects', 0) + 1
+            continue
+        techs = pr.get('technologies') or []
+        if isinstance(techs, str):
+            techs = [techs]
+        pr['technologies'] = [t for t in techs
+                              if _norm_term(t) not in _VAGUE_TERMS and _appears_in(str(t), text)]
+        projects.append(pr)
+    p['projects'] = projects
+
+    p['_grounding_dropped'] = dropped
+    return p
+
+
+def _substantive_project(p: Dict) -> bool:
+    """A project counts only if it says what was built (>=40 chars) AND with what (a real technology)."""
+    return (len(str(p.get('description') or '')) >= 40) and bool(p.get('technologies'))
+
+
+def assess_content_depth(parsed_resume: Dict, text: str, technical_skills: List[str]) -> Dict:
+    projects = [p for p in parsed_resume.get('projects', []) if isinstance(p, dict)]
+    exps     = [e for e in parsed_resume.get('experience', []) if isinstance(e, dict)]
+    evidence = [_project_text(p) for p in projects] + [
+        _flatten({k: v for k, v in e.items() if k not in ('start_date', 'end_date', 'duration_months')})
+        for e in exps
+    ]
+    tech_named = any(p.get('technologies') for p in projects) or any(
+        _appears_in(s, ev) for s in technical_skills for ev in evidence
+    )
+    return {
+        'tech_named':    tech_named,
+        'generic_count': generic_phrase_count(text),
+        'achievements':  _achievement_count(text),
+        'word_count':    len((text or '').split()),
+        'has_experience': bool(exps),
+    }
+
+
 #01: formatting score
 def _calc_formatting_score(parsed_resume: Dict, text: str) -> float:
 
@@ -448,6 +692,8 @@ def _calc_formatting_score(parsed_resume: Dict, text: str) -> float:
     skills       = parsed_resume.get('skills', [])
     summary      = parsed_resume.get('professional_summary', '')
     proj_entries = [p for p in parsed_resume.get('projects', [])   if isinstance(p, dict)]
+    proj_ok      = [p for p in proj_entries if _substantive_project(p)]
+    summary_ok   = len(summary) > 30 and generic_phrase_count(summary) < 2
 
     if exp_entries and any(e.get('job_title') or e.get('description') for e in exp_entries):
         score += 3.0
@@ -455,9 +701,9 @@ def _calc_formatting_score(parsed_resume: Dict, text: str) -> float:
         score += 2.0
     if len(skills) >= 3:
         score += 2.0
-    if len(summary) > 30:
+    if summary_ok:
         score += 1.5
-    if proj_entries:
+    if proj_ok:
         score += 1.5
 
     bullet_count = sum(
@@ -468,7 +714,7 @@ def _calc_formatting_score(parsed_resume: Dict, text: str) -> float:
 
     filled = sum(1 for has_it in [
         bool(exp_entries), bool(edu_entries), bool(skills),
-        bool(summary.strip()), bool(proj_entries),
+        summary_ok, bool(proj_ok),
     ] if has_it)
     score += _tier_score(filled, [(4,5.0),(3,4.0),(2,3.0),(1,2.0)])
 
@@ -502,23 +748,18 @@ def _calc_content_score(
     action_verbs: List[str],
     grammar_results: Dict,
 ) -> float:
-    
+
     score = 0.0
 
-    score += _tier_score(len(action_verbs), [(15,10.0),(10,8.0),(7,6.0),(5,4.0),(3,2.0)])
+    score += min(10.0, float(len(action_verbs)))          # 1 point per distinct strong verb, 10 verbs = full marks
+    score += _tier_score(_achievement_count(text), [(8,5.0),(6,4.0),(4,3.0),(2,2.0),(1,1.0)])   # 8 measurable results = full marks
 
-    number_patterns = [
-        r'\d+%',
-        r'\$\d+',
-        r'\d+[kKmMbB]',
-        r'\d+\s*(?:users|customers|clients|projects|hours|days|months|years)',
-        r'(?:increased|decreased|improved|reduced|grew|saved)\s+(?:by\s+)?\d+',
-    ]
-    achievement_count = sum(len(re.findall(p, text, re.IGNORECASE)) for p in number_patterns)
-    score += _tier_score(achievement_count, [(10,5.0),(7,4.0),(5,3.0),(3,2.0),(1,1.0)])
-
-    grammar_penalty = grammar_results.get('penalty_applied', 0.0)
-    score += max(0.0, 10.0 - grammar_penalty / 2.0)
+    if grammar_results.get('_component_status') == 'unavailable':
+        # No grammar check ran, so don't hand out its 10 points: rescale verbs+metrics (max 15) to 25.
+        score = score / 15.0 * 25.0
+    else:
+        grammar_penalty = grammar_results.get('penalty_applied', 0.0)
+        score += max(0.0, 10.0 - grammar_penalty / 2.0)
 
     return min(25.0, max(0.0, score))
 
@@ -532,35 +773,37 @@ def _calc_ats_compatibility_score(
     location_results: Dict,
     parsed_resume: Dict,
 ) -> float:
+    """Points are earned (max 15): contact info 5, real sections 4, clean characters 2, length 4."""
+    text  = text or ''
+    score = 0.0
 
-    score = 15.0
+    # contact info (5)
+    if re.search(r'[\w.+-]+@[\w-]+\.[\w.-]+', text):
+        score += 2.0
+    if re.search(r'\+?\d[\d\s().-]{8,}\d', text):
+        score += 1.0
+    if re.search(r'linkedin\.com|github\.com|gitlab\.com|portfolio', text, re.IGNORECASE):
+        score += 2.0
 
-    #dedeuction01
-    score -= location_results.get('penalty_applied', 0.0)
-
-    #deduction02
-    special_chars = len(re.findall(r'[│┤├┼┴┬╔╗╚╝═║╠╣╦╩╬]', text))
-    if special_chars > 20:    score -= 2.0
-    elif special_chars > 10:  score -= 1.0
-
+    # sections with real content (4)
     exp_entries  = [e for e in parsed_resume.get('experience', []) if isinstance(e, dict)]
     edu_entries  = [e for e in parsed_resume.get('education', [])  if isinstance(e, dict)]
-    skills_count = len(parsed_resume.get('skills', []))
+    proj_entries = [p for p in parsed_resume.get('projects', [])   if isinstance(p, dict)]
+    exp_ok = any(len((e.get('description') or '') + (e.get('job_title') or '')) >= 20 for e in exp_entries)
+    edu_ok = any(len((e.get('degree') or '') + (e.get('institution') or '')) >= 30 for e in edu_entries)
+    skl_ok = len(parsed_resume.get('technical_skills', parsed_resume.get('skills', []))) >= 3
+    prj_ok = any(_substantive_project(p) for p in proj_entries)
+    score += sum([exp_ok, edu_ok, skl_ok, prj_ok])
 
-    exp_desc_len = sum(len(e.get('description', '')) for e in exp_entries)
-    edu_desc_len = sum(len((e.get('degree') or '') + (e.get('institution') or '')) for e in edu_entries)  # Handle None to prevent string concatenation errors
+    # parser-hostile characters (2)
+    special_chars = len(re.findall(r'[│┤├┼┴┬╔╗╚╝═║╠╣╦╩╬]', text))
+    score += 0.0 if special_chars > 20 else (1.0 if special_chars > 10 else 2.0)
 
-    #deduction03
-    short_sections = sum([
-        bool(exp_entries) and exp_desc_len < 20,
-        bool(edu_entries) and edu_desc_len < 20,
-        bool(parsed_resume.get('skills')) and skills_count < 2,
-    ])
-    if short_sections >= 2:    score -= 2.0
-    elif short_sections >= 1:  score -= 1.0
+    # enough text to be a real resume (4)
+    score += _tier_score(len(text.split()), [(400, 4.0), (250, 3.0), (150, 2.0), (80, 1.0)])
 
-    if exp_entries and skills_count > 5:
-        score += 1.0
+    # location/privacy deduction (only when the check actually ran)
+    score -= location_results.get('penalty_applied', 0.0)
 
     return min(15.0, max(0.0, score))
 
@@ -577,6 +820,8 @@ def calculate_overall_score(
     jd_keywords: Optional[List[str]] = None,
     experience_months: int = 0,
 ) -> Dict:
+
+    grammar_ok = grammar_results.get('_component_status') != 'unavailable'
 
     formatting_score        = _calc_formatting_score(parsed_resume, text)
     keywords_score          = _calc_keywords_score(keywords, skills, jd_keywords)
@@ -608,28 +853,37 @@ def calculate_overall_score(
     bonuses   = {}
     score     = base_score
 
-    if grammar_results.get('penalty_applied', 0.0) > 0:
+    if grammar_ok and grammar_results.get('penalty_applied', 0.0) > 0:
         penalties['grammar'] = grammar_results['penalty_applied']
 
     if location_results.get('penalty_applied', 0.0) > 0:
         penalties['location_privacy'] = location_results['penalty_applied']
 
+    # filler language ("hardworking", "reputed company", "different things" ...)
+    depth = assess_content_depth(parsed_resume, text, skills)
+    filler_penalty = min(6.0, max(0, depth['generic_count'] - 2) * 2.0)
+    if filler_penalty > 0:
+        penalties['generic_filler_language'] = filler_penalty
+        score -= filler_penalty
+
     validation_pct = skill_validation_results.get('validation_percentage', 0.0)
-    if validation_pct >= 0.9:
+    n_validated    = len(skill_validation_results.get('validated_skills', []))
+    if validation_pct >= 0.9 and n_validated >= _MIN_PROVEN_SKILLS:
         bonuses['excellent_skill_validation'] = 2.0
         score += 2.0
-    elif validation_pct >= 0.8:
+    elif validation_pct >= 0.8 and n_validated >= _MIN_PROVEN_SKILLS:
         bonuses['good_skill_validation'] = 1.0
         score += 1.0
 
-    if grammar_results.get('total_errors', 0) == 0:
+    if grammar_ok and grammar_results.get('total_errors', 0) == 0:
         bonuses['perfect_grammar'] = 1.0
         score += 1.0
 
     if jd_keywords and len(jd_keywords) > 0:
         all_resume_terms = list(set((keywords or []) + (skills or [])))
-        fuzzy_result     = fuzzy_match_keywords(all_resume_terms, jd_keywords, threshold=80)
-        missing_pct      = len(fuzzy_result['missing']) / len(jd_keywords)
+        jd_match         = match_terms_against_resume(jd_keywords, text, all_resume_terms)
+        considered       = len(jd_match['matched']) + len(jd_match['missing'])   # generic filler excluded
+        missing_pct      = (len(jd_match['missing']) / considered) if considered else 0.0
 
         if missing_pct > 0.7:
             penalties['missing_jd_keywords'] = 15.0
@@ -641,7 +895,24 @@ def calculate_overall_score(
             penalties['missing_jd_keywords'] = 5.0
             score -= 5.0
 
-    overall_score = min(100.0, max(0.0, score))
+    score_before_caps = min(100.0, max(0.0, score))
+
+    # Hard ceilings: a weighted sum can't rescue a resume that lacks the basics.
+    caps = {}
+    if not skills and not depth['has_experience']:
+        caps['no_technical_skills_or_experience'] = 30.0
+    if depth['word_count'] < 120:
+        caps['very_short_resume'] = 30.0
+    elif depth['word_count'] < 200:
+        caps['short_resume'] = 55.0
+    if not depth['tech_named']:
+        caps['no_technology_in_projects_or_experience'] = 40.0
+    if depth['achievements'] == 0:
+        caps['no_quantified_achievements'] = 65.0
+    if skills and len(skill_validation_results.get('validated_skills', [])) < 3:
+        caps['skills_not_evidenced'] = 55.0
+
+    overall_score = min([score_before_caps] + list(caps.values()))
     interpretation = _generate_score_interpretation(overall_score)
 
     return {
@@ -653,7 +924,9 @@ def calculate_overall_score(
         'ats_compatibility_score': round(ats_compatibility_score, 1),
         'overall_interpretation':  interpretation,
         'penalties':               penalties,
-        'bonuses':                 bonuses,}
+        'bonuses':                 bonuses,
+        'score_before_caps':       round(score_before_caps, 1),
+        'caps_applied':            caps,}
 
 #Overall score calculation and interpretation
 def generate_strengths(
@@ -675,7 +948,7 @@ def generate_strengths(
         strengths.append(f' {pct:.0f}% of skills are validated by projects')
     if score_results['ats_compatibility_score'] >= 13:
         strengths.append(' Excellent ATS compatibility with clean formatting')
-    if grammar_results.get('total_errors', 0)   == 0:
+    if grammar_results.get('_component_status') != 'unavailable' and grammar_results.get('total_errors', 0) == 0:
         strengths.append(' Error-free grammar and spelling')
 
     if not strengths:

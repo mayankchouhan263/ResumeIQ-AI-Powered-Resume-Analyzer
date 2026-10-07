@@ -1,0 +1,28 @@
+# Backend-only dependencies for the server (Render). No PyTorch, no Streamlit, no Chromium.
+# Local development can keep using requirements.txt.
+#
+# After installing:   python -m spacy download en_core_web_sm
+# Optional pre-fetch of the embedding model (so it is not downloaded on cold start):
+#   python -c "from backend.services.embedder import OnnxEmbedder; OnnxEmbedder()"
+
+fastapi>=0.110
+uvicorn[standard]>=0.27
+pydantic>=2.6
+python-multipart>=0.0.9
+python-dotenv>=1.0
+
+spacy>=3.7,<4.0
+fastembed>=0.3
+numpy>=1.26
+rapidfuzz>=3.6
+
+pdfplumber>=0.11
+PyPDF2>=3.0
+python-docx>=1.1
+
+jinja2>=3.1
+weasyprint>=60.0
+
+httpx>=0.27
+groq>=0.13
+PyJWT[crypto]>=2.8
