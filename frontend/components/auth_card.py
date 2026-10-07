@@ -63,7 +63,7 @@ def _google_button(mode: str) -> None:
     href = html.escape(result["url"], quote=True)
     st.markdown(
         f"""
-        <a href="{href}" target="_blank" style="display:flex;align-items:center;justify-content:center;
+        <a href="{href}" target="_self" style="display:flex;align-items:center;justify-content:center;
            gap:10px;padding:0.6rem 1rem;border:1px solid #d0d5dd;border-radius:10px;background:#fff;
            color:#1f2937;font-weight:600;text-decoration:none;">
             <span style="font-weight:800;color:#4285F4;font-size:1.1rem;">G</span>
