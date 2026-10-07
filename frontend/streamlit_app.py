@@ -9,7 +9,7 @@ import streamlit as st
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from frontend.services import supabase_client
-
+from frontend.services.supabase_client import sign_out
 
 # ---------------------------------------------------------
 # Page configuration
@@ -106,11 +106,16 @@ st.markdown(
 
 with st.container(key="resumeiq_topbar"):
 
-    brand_col, home_col, analyze_col, history_col, resources_col = st.columns(
-        [3.3, 1.1, 1.25, 1.15, 1.35],
-        gap="small",
-        vertical_alignment="center",
-    )
+    brand_col, home_col, analyze_col, history_col, resources_col, logout_col = st.columns(
+    [3.0, 1.0, 1.15, 1.1, 1.25, 1.0],
+    gap="small",
+    vertical_alignment="center",
+)
+    # brand_col, home_col, analyze_col, history_col, resources_col = st.columns(
+    #     [3.3, 1.1, 1.25, 1.15, 1.35],
+    #     gap="small",
+    #     vertical_alignment="center",
+    # )
 
     # -----------------------------------------------------
     # BRAND
@@ -182,6 +187,30 @@ with st.container(key="resumeiq_topbar"):
         ):
             st.session_state.current_view = "resources"
             st.rerun()
+
+    # -----------------------------------------------------
+    # LOGOUT
+    # -----------------------------------------------------
+
+
+    with logout_col:
+        if st.session_state.get("access_token"):
+            if st.button("↪  Logout", key="top_logout", use_container_width=True):
+                sign_out()
+
+                # Clear authentication/session state
+                for key in [
+                    "access_token",
+                    "refresh_token",
+                    "user_id",
+                    "email",
+                    "scorer_save_pending",
+                    "scorer_saved",
+                ]:
+                    st.session_state.pop(key, None)
+
+                st.session_state.current_view = "landing"
+                st.rerun()
 
 
 

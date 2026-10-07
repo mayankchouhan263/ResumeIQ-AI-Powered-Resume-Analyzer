@@ -157,14 +157,30 @@ def exchange_code_for_session(auth_code: str) -> Dict[str, Any]:
         logger.warning(f'exchange_code_for_session failed: {exc}')
         return {'error': _humanize(exc)}
 
-
-def sign_out() -> None:
+def sign_out() -> bool:
     if _missing_config():
-        return
+        return False
+
     try:
-        get_client().auth.sign_out()
+        client = get_client()
+
+        if client is None:
+            return False
+
+        client.auth.sign_out()
+        return True
+
     except Exception as exc:
         logger.warning(f'sign_out failed: {exc}')
+        return False
+
+# def sign_out() -> None:
+#     if _missing_config():
+#         return
+#     try:
+#         get_client().auth.sign_out()
+#     except Exception as exc:
+#         logger.warning(f'sign_out failed: {exc}')
 
 
 def _humanize(exc: Exception) -> str:
