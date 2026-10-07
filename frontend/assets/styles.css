@@ -30,6 +30,13 @@
 /* =========================================================
    1. VARIABLES
    ========================================================= */
+.main .block-container {
+    padding-top: 2rem !important;
+}
+
+.st-key-resumeiq_topbar {
+    margin-top: 2rem !important;
+}
 
 :root {
 
