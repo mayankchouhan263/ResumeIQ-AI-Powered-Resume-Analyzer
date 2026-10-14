@@ -1,14 +1,4 @@
 """HTML -> PDF export.
-
-Two engines, tried in this order (set PDF_ENGINE=playwright|weasyprint to force one):
-
-  1. WeasyPrint             - light on memory (fits a 512 MB server). Needs Pango on Linux
-                              (apt install libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0)
-                              and the MSYS2/GTK libraries on Windows.
-  2. Playwright + Chromium  - best fidelity, but a headless browser needs several hundred MB of
-                              RAM, so it is only a fallback (and is not installed on the server):
-                                  pip install playwright
-                                  playwright install chromium
 """
 import asyncio
 import io

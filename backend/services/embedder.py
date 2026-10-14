@@ -1,8 +1,3 @@
-"""Memory-light replacement for sentence-transformers (no PyTorch).
-
-Runs the same all-MiniLM-L6-v2 model through ONNX Runtime via `fastembed`. Exposes the small part of the
-SentenceTransformer API this project uses: .encode(str | list[str], convert_to_numpy=..., normalize_embeddings=...).
-"""
 import logging
 import os
 from typing import List, Optional, Union

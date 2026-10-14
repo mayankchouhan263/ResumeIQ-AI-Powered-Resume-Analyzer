@@ -1,8 +1,4 @@
 """Cheap, offline check that an uploaded document is actually a resume.
-
-Runs BEFORE any LLM call, so non-resumes (papers, invoices, job descriptions, cover
-letters, books...) are rejected with a clear message instead of getting a meaningless
-low score, or burning tokens and hitting Groq's rate limit.
 """
 import os
 import re
