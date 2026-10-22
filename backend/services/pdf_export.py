@@ -1,5 +1,3 @@
-"""HTML -> PDF export.
-"""
 import asyncio
 import io
 import logging

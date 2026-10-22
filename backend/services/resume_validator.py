@@ -1,5 +1,3 @@
-"""Cheap, offline check that an uploaded document is actually a resume.
-"""
 import os
 import re
 from dataclasses import dataclass, field
