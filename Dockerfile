@@ -1,5 +1,3 @@
-# Backend image for Render (Docker runtime). Installs the Pango libraries WeasyPrint needs,
-# the small spaCy model and the ONNX embedding model at BUILD time so cold starts stay fast.
 FROM python:3.11-slim
 
 ENV PYTHONUNBUFFERED=1 \
